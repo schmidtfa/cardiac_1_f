@@ -3,12 +3,12 @@ import sys
 sys.path.append('/mnt/obob/staff/fschmidt/neurogram/cluster_jobs')
 
 from cluster_jobs.bay_cor_cam_can import BayesCorrelation
-from obob_condor import JobCluster, PermuteArgument
+from plus_slurm import JobCluster, PermuteArgument
 import os
 
 #%% get jobcluster
 job_cluster = JobCluster(required_ram='2G',
-                         owner='schmidtfa',
+                         
                          request_cpus=1,
                          python_bin='/mnt/obob/staff/fschmidt/miniconda3/envs/ml/bin/python')
 

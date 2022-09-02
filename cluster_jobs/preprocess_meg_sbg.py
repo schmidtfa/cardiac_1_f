@@ -158,15 +158,14 @@ class Preprocessing(Job):
                 exponents_ecg, offsets_ecg,  aps_ecg = fooof2aperiodics(freqs, freq_range, psd_ecg, is_3d=is_3d)
                  
                 data.update({'ecg': {'psd': psd_ecg,
-                                    'freqs': freqs,
-                                    'offsets': offsets_ecg,
-                                    'exponents': exponents_ecg,
-                                    'aps_ecg': aps_ecg},})                
+                                     'freqs': freqs,
+                                     'offsets': offsets_ecg,
+                                     'exponents': exponents_ecg,
+                                     'aps_ecg': aps_ecg},})                
             
             return data
         
         #%% compute spectra for all conditions
-        
         data_no_ica = compute_spectra_and_fooof(epochs_no_ica, freq_range)
         data_brain = compute_spectra_and_fooof(epochs_brain, freq_range)
         data_heart = compute_spectra_and_fooof(epochs_heart, freq_range, run_on_ecg=True)
@@ -183,6 +182,6 @@ class Preprocessing(Job):
                 'meas_date': df['measurement_date'].replace('-','_'),
                 'days': df['measurement_age_days']}
         
-        save_string = df['subject_id'] + f"_{freq_range[0]}_{freq_range[1]}.dat"
+        save_string = df['subject_id'] + f"_frange_{freq_range[0]}_{freq_range[1]}_thr_{heart_threshold}.dat"
         
         joblib.dump(data, join(outdir, save_string))

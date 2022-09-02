@@ -176,6 +176,6 @@ class Preprocessing(Job):
                 'ecg_scores': ecg_scores,
                 'age': float(raw.info['subject_info']['age'])}
         
-        save_string = subject + f"_{freq_range[0]}_{freq_range[1]}.dat"
+        save_string = subject + f"_frange_{freq_range[0]}_{freq_range[1]}_thr_{heart_threshold}.dat"
         
         joblib.dump(data, join(outdir, save_string))

@@ -9,7 +9,7 @@ from os import listdir
 from os.path import join
 import numpy as np
 import mne
-#import eelbrain as eb
+import eelbrain as eb
 
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -24,11 +24,12 @@ mpl.rcParams.update(new_rc_params)
 sns.set_context('poster')
 sns.set_style('ticks')
 
-my_freqs = '_1_150'
+
+my_freqs = '_1_200_thr_0.5'
 
 INDIR = '/mnt/obob/staff/fschmidt/cardiac_1_f/data/c_1_f_resting_cam_can'
 all_files = [file for file in listdir(INDIR) if my_freqs in file]
-
+len(all_files)
 #%% Load data
 all_df, all_psd = [], []
 for file in all_files:
@@ -37,10 +38,10 @@ for file in all_files:
     if 'ecg_scores' in cur_data.keys() and (cur_data['ecg_scores'] > 0.5).sum() > 0:
     
         def make_data_meg(cur_data, key):
-            cur_psd = pd.DataFrame(cur_data['psd'].mean(axis=0))
+            cur_psd = pd.DataFrame(cur_data['psd'])#.mean(axis=0))
             cur_psd['channel'] = np.arange(102)
             psd_melt = cur_psd.melt(id_vars='channel')
-            psd_melt['Frequency (Hz)'] = psd_melt['variable'].replace(dict(zip(np.arange(300), cur_data['freqs'])))
+            psd_melt['Frequency (Hz)'] = psd_melt['variable'].replace(dict(zip(np.arange(len(cur_data['freqs'])), cur_data['freqs'])))
             psd_melt.drop(labels='variable', axis=1, inplace=True)
             psd_melt.columns = ['channel', key, 'Frequency (Hz)']
             return psd_melt
@@ -88,7 +89,6 @@ def interpolate_line_freq(signal, line_freq, freqs, freq_res):
             interpol[idx-freq_steps:idx+freq_steps] = signal[idx-freq_steps]
 
     return interpol
-
 
 #%%
 fig, ax = plt.subplots()
@@ -143,7 +143,7 @@ df_ecg_corr.columns = ['subject', 'Magnetometers', 'Correlation Coefficient (r)'
 g = sns.catplot(data = df_ecg_corr, x='Magnetometers', y='Correlation Coefficient (r)', aspect=1)
 #g.set_ylabels('')
 g.figure.set_size_inches(5, 5, forward=True)
-g.figure.savefig('../results/corr_comp_ecg_mags.svg')
+#g.figure.savefig('../results/corr_comp_ecg_mags.svg')
 
 #%%
 pg.pairwise_ttests(data=df_ecg_corr, dv='Correlation Coefficient (r)', within='Magnetometers', subject='subject')
@@ -154,7 +154,7 @@ cur_df_cmb = df_cmb.query('channel == 0')
 #%%
 def plot_slope_age_corr(key, x, y, color):
     corr = pg.corr(cur_df_cmb['age'], cur_df_cmb[key])
-
+    print(corr)
     g = sns.lmplot(data=cur_df_cmb, x='age', y=key, line_kws={'color': color},
                    scatter_kws={"s": 40, 'color': '#888888', 'alpha': 0.25})
 
@@ -278,35 +278,50 @@ df = aggregate_sign_feature(feature_key, pos_mask)
 pg.corr(df[feature_key], df['heart_slope'])
 
 #%% combined model
+from scipy.stats import zscore
+from sklearn import preprocessing
+
+#%%
+df_cmb['heart_norm'] = preprocessing.normalize(df_cmb['heart_slope'].to_numpy().reshape(1,-1)).flatten()
+df_cmb['heart_mag_norm'] = preprocessing.normalize(df_cmb['heart_slope_mag'].to_numpy().reshape(1,-1)).flatten()
+df_cmb['brain_norm'] = preprocessing.normalize(df_cmb['brain_slope'].to_numpy().reshape(1,-1)).flatten()
+#%%
+
+
 brms_kwargs = {'draws': 1000,
                'tune': 1000,
                'chains': 2,
                'target_accept': 0.98,}
 
 md = bmb.Model(data=df_cmb, 
-                    formula='age ~ 1 + brain_slope + heart_slope_mag + (1 + brain_slope + heart_slope_mag | channel)', 
+                    formula='age ~ 1 + (1 + brain_slope + heart_slope + heart_slope_mag | channel)', 
                     dropna=True,
-                    family='t')
+                    family='t'
+                    )
 #  + brain_no_ica
 md.build()
 
-#%%              
+#
+# #%%              
 mdf = md.fit(**brms_kwargs)
 
 #%%
-az.to_netcdf(mdf, '../results/cam_can_trace_regr_bmb_1_200.ncdf')
+az.to_netcdf(mdf, '../results/cam_can_trace_regr_short_all_bmb_1_200.ncdf')
 #%%
 mdf_summary = az.summary(mdf)
 # %%
 az.plot_trace(mdf)
 
 #%%
-mask = [True if 'brain_slope' in id else False for id in mdf_summary.index]
+mask = [True if 'heart_norm' in id else False for id in mdf_summary.index]
+intercept_mask = [True if '1|' in id else False for id in mdf_summary.index]
 #%%
 (mdf_summary[mask]['hdi_3%'] > 0).sum()
+
 #%%
 (mdf_summary[mask]['hdi_97%'] < 0).sum()
 # %% try to put everything in one pymc model
+
 
 #%% all in one pymc
 def do_bayesian_correlation(df, key_a, key_b, sampling_kwargs, 
@@ -322,9 +337,8 @@ def do_bayesian_correlation(df, key_a, key_b, sampling_kwargs,
     coords = {'channel': channel,
               'channel_ids': np.arange(len(channel_idxs))}
 
-    with pm.Model(coords=coords) as correlation_model:
+    with pm.Model(coords=coords):
         channel_idx = pm.Data("channel_idx", channel_idxs, dims="channel_ids", mutable=False)
-        channel_num = pm.Data('channel_num', channel, dims='channel', mutable=False)
 
         # set some more or less informative priors here
         mu_age = pm.TruncatedNormal('mu_age', mu=40, sigma=10., lower=18, upper=90, dims='channel') #
@@ -375,3 +389,5 @@ az.to_netcdf(mdf, '../results/cam_can_brain_no_ica_x_age_corr.ncdf')
 #%%
 brain_ecg_x_age_trace = do_bayesian_correlation(df_cmb, 'heart_slope_mag', 'age', sampling_kwargs)
 az.to_netcdf(mdf, '../results/cam_can_brain_ecg_x_age_trace_corr.ncdf')
+
+#%%

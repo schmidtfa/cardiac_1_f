@@ -1,0 +1,6 @@
+#ignore some stuff to keep this repo small
+jobs/
+old_stuff/
+data/
+results/
+helpers/

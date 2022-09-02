@@ -18,7 +18,7 @@ def compute_spectra_mne(cur_data):
 
 
 def compute_spectra_ndsp(mne_data, method='welch', chan_type=True, freq_range=[1, 25], 
-                         time_window=1, overlap=0.25):
+                         time_window=1, overlap=0.5):
     
     '''
     This is a bit faster than the mne implementation.  
@@ -38,7 +38,7 @@ def compute_spectra_ndsp(mne_data, method='welch', chan_type=True, freq_range=[1
                   'avg_type':'median',
                   #'freqs': freq_range if method == 'wavelet' else None, #some issues with wavelet
                   'nperseg': fs*time_window if method == 'welch' else None,
-                  'noverlap': fs*overlap if method == 'welch' else None,}
+                  'noverlap': time_window*fs*overlap if method == 'welch' else None,}
     
     if type(mne_data) == mne.epochs.Epochs:
         freqs, psd = zip(*[compute_spectrum(cur_sig, fs, **psd_kwargs) for cur_sig in sig])

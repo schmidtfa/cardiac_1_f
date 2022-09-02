@@ -14,7 +14,7 @@ new_rc_params = {'text.usetex': False,
 }
 mpl.rcParams.update(new_rc_params)
 #%%
-mdf = az.from_netcdf('../results/cam_can_trace_regr_bmb_short_1_200.ncdf')
+mdf = az.from_netcdf('../results/cam_can_trace_regr_short_bmb_1_200.ncdf')
 
 # %%
 summary = az.summary(mdf)
@@ -71,18 +71,18 @@ def plot_corr_topo(corr, mask, info, title, vmin=None, vmax=None):
                         size=3, time_unit='s');
     return topo
 # %%
-col_kwargs = {'vmin': -20,#-22,
-              'vmax': 20, #22
+col_kwargs = {'vmin': -18,#-22,
+              'vmax': 18, #22
               }
 
 #g = plot_corr_topo(beta_no_ica, pos_no_ica, info_mags, 'brain_no_ica', **col_kwargs);
 #g.figure.savefig('./results/cam_can_regr_brain_no_ica_topo.svg')
 # %%
 g = plot_corr_topo(beta_ica, pos_ica, info_mags, 'brain_ica', **col_kwargs);
-g.figure.savefig('../results/cam_can_regr_brain_ica_topo.svg')
+#g.figure.savefig('../results/cam_can_regr_brain_ica_topo.svg')
 # %%
 g = plot_corr_topo(beta_heart, pos_heart, info_mags, 'heart_ica', **col_kwargs);
-g.figure.savefig('../results/cam_can_regr_heart_ica_topo.svg')
+#g.figure.savefig('../results/cam_can_regr_heart_ica_topo.svg')
 # %% reload real data to plot effect at sign channels
 df_cam_can = pd.read_csv('../data/cam_can_1_f_dataframe_1_200.csv')
 # %%

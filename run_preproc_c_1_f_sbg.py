@@ -28,11 +28,11 @@ job_cluster.add_job(Preprocessing,
                     outdir=OUTDIR,
                     l_pass = None,
                     h_pass = 0.1,
-                    is_3d=True,
-                    freq_range = (1, 150),#PermuteArgument(freq_ranges), -> current cluster cant handle too many jobs
+                    is_3d=False,
+                    freq_range = (1, 200),#PermuteArgument(freq_ranges), -> current cluster cant handle too many jobs
                     notch = False,
-                    eye_threshold = 0.5,
-                    heart_threshold = 0.5,
+                    eye_threshold = 0.3,
+                    heart_threshold = 0.3,
                     powerline = 50, #in hz
                     pick_channel = True,
                     pick_dict = {'meg': 'mag', 'eog':True, 'ecg':True},
