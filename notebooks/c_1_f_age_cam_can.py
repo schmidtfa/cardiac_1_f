@@ -38,7 +38,7 @@ for file in all_files:
     if 'ecg_scores' in cur_data.keys() and (cur_data['ecg_scores'] > 0.5).sum() > 0:
     
         def make_data_meg(cur_data, key):
-            cur_psd = pd.DataFrame(cur_data['psd'])#.mean(axis=0))
+            cur_psd = pd.DataFrame(cur_data['psd'])
             cur_psd['channel'] = np.arange(102)
             psd_melt = cur_psd.melt(id_vars='channel')
             psd_melt['Frequency (Hz)'] = psd_melt['variable'].replace(dict(zip(np.arange(len(cur_data['freqs'])), cur_data['freqs'])))
@@ -52,7 +52,7 @@ for file in all_files:
 
         df_meg_cmb = mags_df.merge(mags_heart_df, on=['channel', 'Frequency (Hz)'])
         df_meg_cmb = df_meg_cmb.merge(mags_no_ica_df, on=['channel', 'Frequency (Hz)'])                    
-        df_ecg = pd.DataFrame({'ECG Electrode' : cur_data['data_heart']['ecg']['psd'][0,:][0],
+        df_ecg = pd.DataFrame({'ECG Electrode' : cur_data['data_heart']['ecg']['psd'][0,:],
                                'Frequency (Hz)': cur_data['data_heart']['ecg']['freqs'],
                               })
         
@@ -127,26 +127,34 @@ all_r_heart, all_r_brain = [], []
 for subject in subject_list:
     cur_df = df_cmb_psd.query(f'subject_id == "{subject}"')
 
-    all_r_brain.append(float(pg.corr(cur_df['Magnetometers (ECG present)'], cur_df['ECG Electrode'])['r']))
-    all_r_heart.append(float(pg.corr(cur_df['ECG Component Magnetometers'], cur_df['ECG Electrode'])['r']))
+    r_heart_cur_chan, r_brain_cur_chan = [], []
+    for channel in range(102):
+        cur_chan = cur_df.query(f'channel == {channel}')
 
-for subject in subject_list:
-    cur_df = df_cmb_psd.query(f'subject_id == "{subject}"')
+        r_brain_cur_chan.append(float(pg.corr(cur_chan['Magnetometers (ECG present)'], cur_chan['ECG Electrode'])['r']))
+        r_heart_cur_chan.append(float(pg.corr(cur_chan['ECG Component Magnetometers'], cur_chan['ECG Electrode'])['r']))
 
+    all_r_brain.append(np.mean(r_brain_cur_chan))
+    all_r_heart.append(np.mean(r_heart_cur_chan))
 #%%
 df_ecg_corr = pd.DataFrame({'no ECG Comps.': all_r_brain,
                             'ECG Comps.': all_r_heart,
                             'subject': np.arange(len(all_r_heart))}).melt(id_vars='subject')
 
-df_ecg_corr.columns = ['subject', 'Magnetometers', 'Correlation Coefficient (r)']
+#maybe retain subject id and remove very bad fitting subjects
+df_ecg_corr.columns = ['subject', 'Magnetometers', 'Correlation ECG Electrode (r)']
 
-g = sns.catplot(data = df_ecg_corr, x='Magnetometers', y='Correlation Coefficient (r)', aspect=1)
+cmap=['#66c2a5', '#fc8d62']
+
+g = sns.catplot(data = df_ecg_corr, x='Magnetometers', 
+                y='Correlation ECG Electrode (r)', aspect=1,
+                palette=cmap)
 #g.set_ylabels('')
 g.figure.set_size_inches(5, 5, forward=True)
-#g.figure.savefig('../results/corr_comp_ecg_mags.svg')
+g.figure.savefig('../results/corr_comp_ecg_mags.svg')
 
 #%%
-pg.pairwise_ttests(data=df_ecg_corr, dv='Correlation Coefficient (r)', within='Magnetometers', subject='subject')
+pg.pairwise_ttests(data=df_ecg_corr, dv='Correlation ECG Electrode (r)', within='Magnetometers', subject='subject')
 
 # %%
 cur_df_cmb = df_cmb.query('channel == 0')
@@ -172,6 +180,11 @@ def plot_slope_age_corr(key, x, y, color):
     g.set_xlabels('age (years)')
     g.set_ylabels('1/f slope')
     g.ax.figure.savefig(f'../results/corr_{key}_{my_freqs}.svg', )
+
+#%%
+md = bmb.Model(formula='age ~ brain_slope_avg', data=cur_df_cmb)
+mdf = md.fit()
+
 #%%
 plot_slope_age_corr('no_ica_slope_avg', 20, 2., '#e78ac3')
 #%%
@@ -184,9 +197,31 @@ plot_slope_age_corr('heart_slope', 20, 2.2, '#8da0cb')
 #%%
 pg.corr(cur_df_cmb['heart_slope'], cur_df_cmb['heart_slope_avg'])
 
+corr = pg.corr(cur_df_cmb['age'], cur_df_cmb['heart_slope_avg'])
+print(corr)
+g = sns.lmplot(data=cur_df_cmb, x='heart_slope', y='heart_slope_avg', line_kws={'color': '#ffd92f'},
+                   scatter_kws={"s": 40, 'color': '#888888', 'alpha': 0.25})
+
+r = round(float(corr['r']), 2)
+p = round(float(corr['p-val']), 3)
+
+if p == 0.0:
+    p = 'p < 0.001'
+else:
+    p = f'p = {p}'
+
+plt.annotate(text=f'r = {r}', xy=(2, 2))
+plt.annotate(text=p, xy=(2, 2 - 0.2))
+
+g.set_xlabels('1/f slope (ECG)')
+g.set_ylabels('1/f slope (ECG Component)')
+g.ax.figure.savefig(f'../results/corr_heart_heart_{my_freqs}.svg', )
+
+
+
 # %%
 df_cmb.to_csv('../data/cam_can_1_f_dataframe_1_200.csv')
-
+df_cmb_psd.to_csv('../data/cam_can_1_f_dataframe_1_200_psd.csv')
 # %% visualize per channel
 import fnmatch
 
