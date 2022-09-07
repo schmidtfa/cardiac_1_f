@@ -64,7 +64,7 @@ def get_good_idx(fg, thresh=2.5):
 
     r2 = check_outliers(fg.get_params('r_squared'), thresh)
     err = check_outliers(fg.get_params('error'), thresh)
-    good_idx = r2 * err
+    good_idx = r2 * err  # TH: `good_idx = np.logical_and(r2, err)`!!!!!!!!!!
     return good_idx
 
 def plot_band_peak_topos(fg, chan_type, bands):
@@ -103,16 +103,19 @@ def check_my_foofing(fgs):
 
 
 
-def get_fooof_data(fg, param_type='aperiodic_params', param='exponent', impute=True, thresh=2.5):
+def get_fooof_data(fg, param_type='aperiodic_params', param='exponent', impute=True, thresh=2.5):  # TH: consider pulling the `thresh` parameter up
+                                                                                                   # i.e., in the `fooof2aperiodics` function
+                                                                                                   # as this is the one that gets called by the user.
 
     '''
     Gets fooof data and imputes outlying fits using the median (if wanted)
     '''
     
     params = fg.get_params(param_type, param)
-    if impute == True:
+    if impute == True:  # TH: so, this basically replaces the bad elements with
+                        # the median of all elements?
         bad_idx = get_good_idx(fg, thresh) == False
-        median = np.median(params)
+        median = np.median(params)  # TH: Please be aware that this median INCLUDES THE BAD ONES! Is this really what you want?
         params[bad_idx] = median
         
     return params
