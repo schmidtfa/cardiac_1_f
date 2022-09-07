@@ -493,7 +493,6 @@ dependencies:
     - looseversion==1.0.1
     - nipype==1.8.3
     - nolds==0.5.2
-    - numpy==1.22.0
     - opencv-python==4.6.0.66
     - opt-einsum==3.3.0
     - pathlib==1.0.1

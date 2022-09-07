@@ -4,3 +4,6 @@ old_stuff/
 data/
 results/
 helpers/
+.venv
+.ipynb_checkpoints
+.idea
