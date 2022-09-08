@@ -9,7 +9,7 @@ from fooof import FOOOFGroup
 import pandas as pd
 
 import sys
-sys.path.append('/mnt/obob/staff/fschmidt/cardiac_1_f/utils/')
+sys.path.append('/mnt/obob/staff/fschmidt/cardiac_1_f/utils/')  # TH: It is always better to make `utils` a package. i.e. add a `__init__.py` file to the folder
 from cleaning_utils import run_potato
 from psd_utils import compute_spectra_ndsp
 from fooof_utils import fooof2aperiodics
@@ -57,7 +57,7 @@ class Preprocessing(Job):
         #do bad data correction if requested
         max_settings_path = '/mnt/obob/staff/fschmidt/meeg_preprocessing/meg/maxfilter_settings/'
         #cal & cross talk files specific to system
-        calibration_file = join(max_settings_path, 'sss_cal.dat')
+        calibration_file = join(max_settings_path, 'sss_cal.dat')  # TH: Use pathlib for this
         cross_talk_file = join(max_settings_path, 'ct_sparse.fif')
                 
         #find bad channels first
@@ -68,10 +68,13 @@ class Preprocessing(Job):
         raw.load_data()
         raw.info['bads'] = noisy_chs + flat_chs
 
-        raw.interpolate_bads()
+        raw.interpolate_bads()  # TH: why do you interpolate here? The only reason
+                                # to do this would be if you really need all runs/subjects
+                                # to have the same channels. Otherwise, this step
+                                # is most likely not necessary.
 
         #%% if time is below 5mins breaks function here this is mainly needed for 
-        if raw.times.max() / 60 < 4.9:
+        if raw.times.max() / 60 < 4.9:  # TH: Why is this a problem?
             raise ValueError(f'The total duration of the recording is below 5min. Recording duration is {raw.times.max() / 60} minutes')
         
         #%%
@@ -112,7 +115,7 @@ class Preprocessing(Job):
         #%% select heart activity
         raw_heart = raw.copy()
         ica.apply(raw_heart, include=ecg_indices, 
-                  n_pca_components=len(ecg_indices)) #only project back my ecg components
+                  n_pca_components=len(ecg_indices)) #only project back my ecg components  # TH: I do not understand this. Have you checked this does what you want it to do?
     
         #%% select everything but heart stuff
         ica.apply(raw, exclude=ecg_indices + eog_indices)
@@ -128,7 +131,11 @@ class Preprocessing(Job):
         epochs_heart = run_potato(epochs_heart)
             
         #%% fooof the data
-        def compute_spectra_and_fooof(epochs, freq_range, run_on_ecg=False):
+        def compute_spectra_and_fooof(epochs, freq_range, run_on_ecg=False):  # TH: local functions are almost always a very bad idea.
+                                                                              # Why? Because they can access and modify variables in
+                                                                              # the outer scope. And if they do this, this can lead
+                                                                              # to rather unpredictable, unwanted and hard to debug
+                                                                              # problems. Suggestion: make this a method.
             
             mags = epochs.copy().pick_types(meg='mag')
             freqs, psd_mag, _ = compute_spectra_ndsp(mags,
@@ -182,6 +189,6 @@ class Preprocessing(Job):
                 'meas_date': df['measurement_date'].replace('-','_'),
                 'days': df['measurement_age_days']}
         
-        save_string = df['subject_id'] + f"_frange_{freq_range[0]}_{freq_range[1]}_thr_{heart_threshold}.dat"
+        save_string = df['subject_id'] + f"_frange_{freq_range[0]}_{freq_range[1]}_thr_{heart_threshold}.dat"  # TH: take a look at  https://plus-slurm.readthedocs.io/en/stable/autofilename.html
         
         joblib.dump(data, join(outdir, save_string))

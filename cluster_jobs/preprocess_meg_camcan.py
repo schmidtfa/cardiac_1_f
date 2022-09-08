@@ -23,6 +23,9 @@ from mne_bids import BIDSPath, read_raw_bids
 
 #%%
 
+# TH: This seems to be mostly the same as `preprocess_meg_sbg.py`. Why is there a
+# second file?
+
 class Preprocessing(Job):
 
     def run(self, 
