@@ -25,17 +25,9 @@ all_files = [file[4:] for file in listdir(INDIR) if 'sub' in file]
 #%% put in jobs...
 job_cluster.add_job(Preprocessing,
                     subject=PermuteArgument(all_files),
-                    outdir=OUTDIR,
-                    l_pass = None,
-                    is_3d=False,
-                    h_pass = 0.1,
-                    notch = False,
-                    eye_threshold = 0.9,
-                    heart_threshold = 0.9,
-                    powerline = 50, #in hz
-                    freq_range = [1, 200],
-                    pick_channel = True,
-                    pick_dict = {'meg': 'mag', 'eog':True, 'ecg':True},
+                    freq_range = (1, 200),#PermuteArgument(freq_ranges), -> current cluster cant handle too many jobs
+                    eye_threshold = 0.5,
+                    heart_threshold = 0.5,
                     )
 #%% submit...
 job_cluster.submit(do_submit=True)

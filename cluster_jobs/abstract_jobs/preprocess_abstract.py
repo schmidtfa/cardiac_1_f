@@ -88,7 +88,7 @@ class AbstractPreprocessingJob(Job):
                 'age': self._get_age(),
                 'explained_variance': ica._get_infos_for_repr().fit_explained_variance}
 
-        joblib.dump(data, self.full_output_path())
+        joblib.dump(data, self.full_output_path)
 
 
     def _compute_spectra_and_fooof(self, epochs, freq_range, run_on_ecg, is_3d):

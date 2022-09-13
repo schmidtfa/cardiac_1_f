@@ -7,7 +7,7 @@ import pandas as pd
 #%%
 class Preprocessing(AbstractPreprocessingJob):
 
-    job_data_folder = 'c_1_f_resting_sbg'
+    job_data_folder = 'data_sbg'
 
     def _get_age(self):
         return self.raw.info['subject_info']['age']
@@ -56,5 +56,5 @@ class Preprocessing(AbstractPreprocessingJob):
         return raw
 
 #if __name__ == '__main__':
- #   job = Preprocessing(subject=0)
+ #   job = Preprocessing(subject='19800616mrgu')
   #  job.run_private()
