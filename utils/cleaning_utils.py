@@ -1,6 +1,5 @@
 import pyriemann
 
-
 def run_potato(epochs, potato_threshold=2):
 
     '''

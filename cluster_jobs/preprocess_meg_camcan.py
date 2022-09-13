@@ -18,6 +18,7 @@ sys.path.append('/mnt/obob/staff/fschmidt/cardiac_1_f/utils/')
 from cleaning_utils import run_potato
 from psd_utils import compute_spectra_ndsp
 from fooof_utils import fooof2aperiodics
+import numpy as np
 
 from mne_bids import BIDSPath, read_raw_bids
 
@@ -110,8 +111,9 @@ class Preprocessing(Job):
     
         #%% select heart activity
         raw_heart = raw.copy()
-        ica.apply(raw_heart, include=ecg_indices, 
-                  n_pca_components=len(ecg_indices)) #only project back my ecg components
+
+        brain2exclude = np.delete(np.arange(ica.n_components), ecg_indices)
+        ica.apply(raw_heart, include=ecg_indices, exclude=brain2exclude) #only project back my ecg components
     
         #%% select everything but heart stuff
         ica.apply(raw, exclude=ecg_indices + eog_indices)
@@ -171,7 +173,6 @@ class Preprocessing(Job):
         data_heart = compute_spectra_and_fooof(epochs_heart, freq_range, run_on_ecg=True)
         
         #%%
-        
         data = {'data_no_ica': data_no_ica,
                 'data_brain': data_brain,
                 'data_heart': data_heart,
@@ -182,3 +183,6 @@ class Preprocessing(Job):
         save_string = subject + f"_frange_{freq_range[0]}_{freq_range[1]}_thr_{heart_threshold}.dat"
         
         joblib.dump(data, join(outdir, save_string))
+
+    def _get_age(self):
+        return self.raw.info['subject_info']['age']

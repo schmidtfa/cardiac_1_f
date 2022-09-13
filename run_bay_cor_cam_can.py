@@ -8,7 +8,6 @@ import os
 
 #%% get jobcluster
 job_cluster = JobCluster(required_ram='2G',
-                         
                          request_cpus=1,
                          python_bin='/mnt/obob/staff/fschmidt/miniconda3/envs/ml/bin/python')
 
