@@ -12,25 +12,20 @@ import numpy as np
 
 class AbstractPreprocessingJob(Job):
     def run(self,
-            subject,
+            subject_id,
             l_pass = None,
             h_pass = 0.1,
             notch = False,
             eye_threshold = 0.6,
             heart_threshold = 0.6,
             powerline = 50, #in hz
-            is_3d=True,
+            is_3d=False,
             freq_range = [1, 150],
             pick_dict = {'meg': 'mag', 'eog':True, 'ecg':True}):
 
-        self.raw = self._data_loader(subject)
+        self.raw = self._data_loader(subject_id)
 
-        #pick channels if possible
-        try:
-            self.raw.pick_types(**pick_dict)
-        except ValueError:
-            pass
-
+        self.raw.pick_types(**pick_dict)
         #Apply filters
         self.raw.filter(l_freq=h_pass, h_freq=l_pass)
 
@@ -83,7 +78,7 @@ class AbstractPreprocessingJob(Job):
         data = {'data_no_ica': data_no_ica,
                 'data_brain': data_brain,
                 'data_heart': data_heart,
-                'subject_id': subject,
+                'subject_id': subject_id,
                 'ecg_scores': ecg_scores,
                 'age': self._get_age(),
                 'explained_variance': ica._get_infos_for_repr().fit_explained_variance}

@@ -12,26 +12,23 @@ class Preprocessing(AbstractPreprocessingJob):
     def _get_age(self):
         return self.raw.info['subject_info']['age']
 
-    def _data_loader(self, subject):
+    def _data_loader(self, subject_id):
         #%%
         df_all = pd.read_csv('/mnt/obob/staff/fschmidt/cardiac_1_f/data/resting_lists_sbg/resting_list_single.csv').query('fs_1k == True')
         df_all.reset_index(inplace=True)
 
-        print(subject)
-        df = df_all.query(f'subject_id == "{subject}"')
+        df = df_all.query(f'subject_id == "{subject_id}"')
 
         cur_path = list(df['path'])[0]
 
-        print(f'The path is: {cur_path}')
         raw = mne.io.read_raw_fif(cur_path)
 
         #set age
         raw.info['subject_info']['age'] = df['measurement_age']
 
-        #do bad data correction if requested
         max_settings_path = '/mnt/obob/staff/fschmidt/meeg_preprocessing/meg/maxfilter_settings/'
         #cal & cross talk files specific to system
-        calibration_file = join(max_settings_path, 'sss_cal.dat')  # TH: Use pathlib for this
+        calibration_file = join(max_settings_path, 'sss_cal.dat')
         cross_talk_file = join(max_settings_path, 'ct_sparse.fif')
                 
         #find bad channels first
@@ -56,5 +53,5 @@ class Preprocessing(AbstractPreprocessingJob):
         return raw
 
 #if __name__ == '__main__':
- #   job = Preprocessing(subject='19800616mrgu')
+ #   job = Preprocessing(subject_id='19800616mrgu')
   #  job.run_private()

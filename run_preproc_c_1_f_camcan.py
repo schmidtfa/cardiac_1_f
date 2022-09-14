@@ -17,14 +17,13 @@ job_cluster = JobCluster(required_ram='4G',
                          request_cpus=2,
                          python_bin='/home/b1059770/miniconda3/envs/ml/bin/python')
 
-OUTDIR = '/mnt/obob/staff/fschmidt/cardiac_1_f/data/c_1_f_resting_cam_can'
 INDIR =  '/mnt/obob/camcan/cc700/meg/pipeline/release005/BIDSsep/rest'
 
 all_files = [file[4:] for file in listdir(INDIR) if 'sub' in file]
 
 #%% put in jobs...
 job_cluster.add_job(Preprocessing,
-                    subject=PermuteArgument(all_files),
+                    subject_id=PermuteArgument(all_files),
                     freq_range = (1, 200),#PermuteArgument(freq_ranges), -> current cluster cant handle too many jobs
                     eye_threshold = 0.5,
                     heart_threshold = 0.5,

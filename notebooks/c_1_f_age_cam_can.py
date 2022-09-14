@@ -5,8 +5,7 @@ import pymc as pm
 import aesara.tensor as at
 import pingouin as pg
 import joblib
-from os import listdir
-from os.path import join
+from pathlib import Path
 import numpy as np
 import mne
 import eelbrain as eb
@@ -24,16 +23,20 @@ mpl.rcParams.update(new_rc_params)
 sns.set_context('poster')
 sns.set_style('ticks')
 
+#%%
+heart_thresh, eye_thresh = 0.5, 0.5
+freq_range = [1, 200]
 
-my_freqs = '_1_200_thr_0.5'
+indir = Path('/mnt/obob/staff/fschmidt/cardiac_1_f/data/data_cam_can')
+my_path_ending = f'*_freq_range_{freq_range}__eye_threshold_{eye_thresh}__heart_threshold_{heart_thresh}.dat'
 
-INDIR = '/mnt/obob/staff/fschmidt/cardiac_1_f/data/c_1_f_resting_cam_can'
-all_files = [file for file in listdir(INDIR) if my_freqs in file]
-len(all_files)
+all_files = [str(sub_path) for sub_path in indir.rglob('*') if sub_path.is_file()]
+print(len(all_files))
+#
 #%% Load data
 all_df, all_psd = [], []
 for file in all_files:
-    cur_data = joblib.load(join(INDIR, file))
+    cur_data = joblib.load(file)
     
     if 'ecg_scores' in cur_data.keys() and (cur_data['ecg_scores'] > 0.5).sum() > 0:
     
@@ -98,7 +101,7 @@ sns.lineplot(x='Frequency (Hz)', y='Magnetometers (ECG removed)',
 fig.set_size_inches(6,6)
 plt.xscale('log')
 plt.yscale('log')
-fig.savefig(f'../results/mags_ga_ecg_removed{my_freqs}.svg')
+#fig.savefig(f'../results/mags_ga_ecg_removed{my_freqs}.svg')
 #%%
 fig, ax = plt.subplots()
 sns.lineplot(x='Frequency (Hz)', y='ECG Component Magnetometers',
@@ -107,7 +110,7 @@ sns.lineplot(x='Frequency (Hz)', y='ECG Component Magnetometers',
 fig.set_size_inches(6,6)
 plt.xscale('log')
 plt.yscale('log')
-fig.savefig(f'../results/mags_ga_ecg_component{my_freqs}.svg')
+#fig.savefig(f'../results/mags_ga_ecg_component{my_freqs}.svg')
 #%%
 fig, ax = plt.subplots()
 sns.lineplot(x='Frequency (Hz)', y='Magnetometers (ECG present)',
@@ -116,7 +119,7 @@ sns.lineplot(x='Frequency (Hz)', y='Magnetometers (ECG present)',
 fig.set_size_inches(6,6)
 plt.xscale('log')
 plt.yscale('log')
-fig.savefig(f'../results/mags_ga_ecg_present{my_freqs}.svg')
+#fig.savefig(f'../results/mags_ga_ecg_present{my_freqs}.svg')
 
 # %%
 subject_list = df_cmb_psd['subject_id'].unique()
