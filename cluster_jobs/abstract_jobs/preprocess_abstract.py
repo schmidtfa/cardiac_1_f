@@ -1,14 +1,10 @@
 from cluster_jobs.abstract_jobs.meta_job import Job
-from os.path import join
 import mne
 import numpy as np
 import joblib
-
 from utils.cleaning_utils import run_potato
-from utils.psd_utils import compute_spectra_ndsp
+from utils.psd_utils import compute_spectra_ndsp, interpolate_line_freq
 from utils.fooof_utils import fooof2aperiodics
-
-import numpy as np
 
 class AbstractPreprocessingJob(Job):
     def run(self,
@@ -19,6 +15,7 @@ class AbstractPreprocessingJob(Job):
             eye_threshold = 0.6,
             heart_threshold = 0.6,
             powerline = 50, #in hz
+            interpol_line_freq = True,
             is_3d=False,
             freq_range = [1, 150],
             pick_dict = {'meg': 'mag', 'eog':True, 'ecg':True}):
@@ -55,7 +52,7 @@ class AbstractPreprocessingJob(Job):
 
         brain2exclude = np.delete(np.arange(ica.n_components), ecg_indices)
         ica.apply(raw_heart, include=ecg_indices, exclude=brain2exclude) #only project back my ecg components
-    
+
         #%% select everything but heart stuff
         ica.apply(self.raw, exclude=ecg_indices + eog_indices)
             
@@ -69,10 +66,9 @@ class AbstractPreprocessingJob(Job):
         epochs_heart = run_potato(epochs_heart)            
         
         #%% compute spectra and fooof the data
-        
-        data_no_ica = self._compute_spectra_and_fooof(epochs_no_ica, freq_range, run_on_ecg=False, is_3d=is_3d)
-        data_brain = self._compute_spectra_and_fooof(epochs_brain, freq_range, run_on_ecg=False, is_3d=is_3d)
-        data_heart = self._compute_spectra_and_fooof(epochs_heart, freq_range, run_on_ecg=True, is_3d=is_3d)
+        data_no_ica = self._compute_spectra_and_fooof(epochs_no_ica, freq_range, run_on_ecg=False, is_3d=is_3d, interpol_line_freq=interpol_line_freq)
+        data_brain = self._compute_spectra_and_fooof(epochs_brain, freq_range, run_on_ecg=False, is_3d=is_3d, interpol_line_freq=interpol_line_freq)
+        data_heart = self._compute_spectra_and_fooof(epochs_heart, freq_range, run_on_ecg=True, is_3d=is_3d, interpol_line_freq=interpol_line_freq)
         
         #%%
         data = {'data_no_ica': data_no_ica,
@@ -86,7 +82,7 @@ class AbstractPreprocessingJob(Job):
         joblib.dump(data, self.full_output_path)
 
 
-    def _compute_spectra_and_fooof(self, epochs, freq_range, run_on_ecg, is_3d):
+    def _compute_spectra_and_fooof(self, epochs, freq_range, run_on_ecg, is_3d, interpol_line_freq):
 
         mags = epochs.copy().pick_types(meg='mag')
         freqs, psd_mag, _ = compute_spectra_ndsp(mags,
@@ -96,6 +92,11 @@ class AbstractPreprocessingJob(Job):
 
         if not is_3d:
             psd_mag = psd_mag.mean(axis=0)
+        
+        if interpol_line_freq and not is_3d:
+            psd_mag = np.array([interpolate_line_freq(psd, freqs=freqs, line_freq=powerline, n_hz_prior=2) for psd in psd_mag])
+        elif interpol_line_freq and is_3d:
+            raise NotImplementedError #TODO: If I decide to care
 
         exponents_mag, offsets_mag,  aps_mag = fooof2aperiodics(freqs, freq_range, psd_mag, is_3d=is_3d)
 

@@ -35,7 +35,7 @@ print(len(all_files))
 #
 #%% Load data
 all_df, all_psd = [], []
-for file in all_files:
+for file in all_files[:50]:
     cur_data = joblib.load(file)
     
     if 'ecg_scores' in cur_data.keys() and (cur_data['ecg_scores'] > 0.5).sum() > 0:
@@ -74,26 +74,50 @@ for file in all_files:
                                     'no_ica_slope_avg': cur_data['data_no_ica']['mag']['aps_mag']['Exponent'].mean(),
                                     'channel': np.arange(102),
                                     'subject_id': cur_data['subject_id'],
-                                    'age': cur_data['age']}))
+                                    'age': float(cur_data['age'])}))
 df_cmb = pd.concat(all_df)
 df_cmb_psd = pd.concat(all_psd)
 #%% Check average psds across subjects
+
+from warnings import warn
+
 avg_psd = df_cmb_psd.groupby(['Frequency (Hz)', 'channel']).mean().reset_index()
 
-def interpolate_line_freq(signal, line_freq, freqs, freq_res):
+def interpolate_line_freq(signal, line_freq, freqs, n_hz_prior):
     '''
     This function takes a power spectrum and interpolates the powerline noise.
-    This is done by replacing the value at the powerline freq with the values beforehand.
+    This is done by replacing the value at the powerline freq with the value n Hz beforehand.
+
+    signal: 
     '''
-    freq_steps = int(1 / freq_res)
+    freq_steps = freqs[1] - freqs[0]
+    idx_steps = int(n_hz_prior // freq_steps)
+    if idx_steps < 1:
+        raise ValueError('Interpolation is not done correctly as the to be replaced values are equal to the values that are used for the replacement')
+
     interpol = signal.copy()
     for idx, cur_freq in enumerate(freqs):
         if cur_freq % line_freq == 0 and idx > 0:
-            interpol[idx-freq_steps:idx+freq_steps] = signal[idx-freq_steps]
-
+            if freqs[-1] > cur_freq + (freq_steps * idx_steps):
+                interpol[idx-idx_steps:idx+idx_steps] = np.mean([signal[idx-idx_steps], signal[idx+idx_steps]])
+            else:
+                message = f'The Frequency {cur_freq} is too close to the highest frequency in the spectrum. Only indices prior to {cur_freq} are used for the {cur_freq}.'
+                warn(message, UserWarning, stacklevel=2)
+                interpol[idx-idx_steps:idx+idx_steps] = signal[idx-idx_steps]
     return interpol
 
+
+feature_list = ['Magnetometers (ECG removed)', 'ECG Component Magnetometers', 
+                'Magnetometers (ECG present)', 'ECG Electrode']
+
+
+for cur_channel in avg_psd['channel'].unique():
+    cur_sigs = avg_psd.query(f'channel == {cur_channel}')
+    for cur_feature in feature_list:
+       test = interpolate_line_freq(cur_sigs[cur_feature].to_numpy(), 50, cur_sigs['Frequency (Hz)'].to_numpy(), 2)
 #%%
+my_freqs = '_1_200'
+
 fig, ax = plt.subplots()
 sns.lineplot(x='Frequency (Hz)', y='Magnetometers (ECG removed)',
              hue="channel",
@@ -101,7 +125,7 @@ sns.lineplot(x='Frequency (Hz)', y='Magnetometers (ECG removed)',
 fig.set_size_inches(6,6)
 plt.xscale('log')
 plt.yscale('log')
-#fig.savefig(f'../results/mags_ga_ecg_removed{my_freqs}.svg')
+fig.savefig(f'../results/mags_ga_ecg_removed{my_freqs}.svg')
 #%%
 fig, ax = plt.subplots()
 sns.lineplot(x='Frequency (Hz)', y='ECG Component Magnetometers',
@@ -110,7 +134,7 @@ sns.lineplot(x='Frequency (Hz)', y='ECG Component Magnetometers',
 fig.set_size_inches(6,6)
 plt.xscale('log')
 plt.yscale('log')
-#fig.savefig(f'../results/mags_ga_ecg_component{my_freqs}.svg')
+fig.savefig(f'../results/mags_ga_ecg_component{my_freqs}.svg')
 #%%
 fig, ax = plt.subplots()
 sns.lineplot(x='Frequency (Hz)', y='Magnetometers (ECG present)',
@@ -119,7 +143,7 @@ sns.lineplot(x='Frequency (Hz)', y='Magnetometers (ECG present)',
 fig.set_size_inches(6,6)
 plt.xscale('log')
 plt.yscale('log')
-#fig.savefig(f'../results/mags_ga_ecg_present{my_freqs}.svg')
+fig.savefig(f'../results/mags_ga_ecg_present{my_freqs}.svg')
 
 # %%
 subject_list = df_cmb_psd['subject_id'].unique()
@@ -193,14 +217,14 @@ plot_slope_age_corr('no_ica_slope_avg', 20, 2., '#e78ac3')
 #%%
 plot_slope_age_corr('brain_slope_avg', 20, 2., '#66c2a5')
 #%%
-plot_slope_age_corr('heart_slope_avg', 20, 2.6, '#fc8d62')
+plot_slope_age_corr('heart_slope_avg', 20, 1.6, '#fc8d62')
 #%%
 plot_slope_age_corr('heart_slope', 20, 2.2, '#8da0cb')
 
 #%%
 pg.corr(cur_df_cmb['heart_slope'], cur_df_cmb['heart_slope_avg'])
 
-corr = pg.corr(cur_df_cmb['age'], cur_df_cmb['heart_slope_avg'])
+corr = pg.corr(cur_df_cmb['heart_slope'], cur_df_cmb['heart_slope_avg'])
 print(corr)
 g = sns.lmplot(data=cur_df_cmb, x='heart_slope', y='heart_slope_avg', line_kws={'color': '#ffd92f'},
                    scatter_kws={"s": 40, 'color': '#888888', 'alpha': 0.25})
@@ -213,8 +237,8 @@ if p == 0.0:
 else:
     p = f'p = {p}'
 
-plt.annotate(text=f'r = {r}', xy=(2, 2))
-plt.annotate(text=p, xy=(2, 2 - 0.2))
+plt.annotate(text=f'r = {r}', xy=(2, 1.6))
+plt.annotate(text=p, xy=(2, 1.6 - 0.2))
 
 g.set_xlabels('1/f slope (ECG)')
 g.set_ylabels('1/f slope (ECG Component)')
@@ -291,7 +315,7 @@ plot_corr_topo(corr_ica_df['r'], corr_ica_df['p-val'] < 0.05, info_mags, 'Correl
 # %%
 plot_corr_topo(corr_ecg_comp_df['r'], corr_ecg_comp_df['p-val'] < 0.05, info_mags, 'Correlation age per chan (ica)', vmin=-0.35, vmax=0.35);
 # %%
-plot_corr_topo(corr_ecg_df['r'], corr_ecg_df['p-val'] < 0.05, info_mags, 'Correlation ECG per chan (ica)')# vmin=-0.35, vmax=0.35);
+plot_corr_topo(corr_ecg_df['r'], corr_ecg_df['p-val'] < 0.05, info_mags, 'Correlation ECG per chan (ica)');# vmin=-0.35, vmax=0.35);
 
 # %% throw in eelbrain
 def aggregate_sign_feature(feature_key, pos_mask):
@@ -332,7 +356,7 @@ brms_kwargs = {'draws': 1000,
                'target_accept': 0.98,}
 
 md = bmb.Model(data=df_cmb, 
-                    formula='age ~ 1 + (1 + brain_slope + heart_slope + heart_slope_mag | channel)', 
+                    formula='age ~ 1 + (1 + brain_slope + heart_slope_mag | channel)', 
                     dropna=True,
                     family='t'
                     )
@@ -351,7 +375,7 @@ mdf_summary = az.summary(mdf)
 az.plot_trace(mdf)
 
 #%%
-mask = [True if 'heart_norm' in id else False for id in mdf_summary.index]
+mask = [True if 'brain' in id else False for id in mdf_summary.index]
 intercept_mask = [True if '1|' in id else False for id in mdf_summary.index]
 #%%
 (mdf_summary[mask]['hdi_3%'] > 0).sum()

@@ -84,6 +84,27 @@ def compute_spectra_ndsp_src(raw_src_data, method='welch', freq_range=[1, 50]):
     return raw_src_data, freqs
 
 
+def interpolate_line_freq(signal, line_freq, freqs, n_hz_prior):
+    '''
+    This function takes a power spectrum and interpolates the powerline noise.
+    This is done by replacing the value at the powerline freq with the value n Hz beforehand.
+    '''
+    freq_steps = freqs[1] - freqs[0]
+    idx_steps = int(n_hz_prior // freq_steps)
+    if idx_steps < 1:
+        raise ValueError('Interpolation is not done correctly as the to be replaced values are equal to the values that are used for the replacement')
+
+    interpol = signal.copy()
+    for idx, cur_freq in enumerate(freqs):
+        if cur_freq % line_freq == 0 and idx > 0:
+            if freqs[-1] > cur_freq + (freq_steps * idx_steps):
+                interpol[idx-idx_steps:idx+idx_steps] = np.mean([signal[idx-idx_steps], signal[idx+idx_steps]])
+            else:
+                message = f'The Frequency {cur_freq} is too close to the highest frequency in the spectrum. Only indices prior to {cur_freq} are used for the {cur_freq}'
+                warn(message, UserWarning, stacklevel=2)
+                interpol[idx-idx_steps:idx+idx_steps] = signal[idx-idx_steps]
+    return interpol
+
 
 def create_psd_ave(psd, freqs, info, window_size):
 

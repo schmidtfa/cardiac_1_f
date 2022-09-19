@@ -25,6 +25,7 @@ all_files = [file[4:] for file in listdir(INDIR) if 'sub' in file]
 job_cluster.add_job(Preprocessing,
                     subject_id=PermuteArgument(all_files),
                     freq_range = (1, 200),#PermuteArgument(freq_ranges), -> current cluster cant handle too many jobs
+                    interpol_line_freq = True,
                     eye_threshold = 0.5,
                     heart_threshold = 0.5,
                     )
