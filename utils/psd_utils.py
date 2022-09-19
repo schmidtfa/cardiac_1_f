@@ -2,6 +2,7 @@ from mne.time_frequency import psd_welch
 from neurodsp.spectral import compute_spectrum, trim_spectrum
 import numpy as np
 import mne
+from warnings import warn
 
 def compute_spectra_mne(cur_data):
     

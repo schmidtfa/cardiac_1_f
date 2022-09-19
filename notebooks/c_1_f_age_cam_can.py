@@ -28,14 +28,14 @@ heart_thresh, eye_thresh = 0.5, 0.5
 freq_range = [1, 200]
 
 indir = Path('/mnt/obob/staff/fschmidt/cardiac_1_f/data/data_cam_can')
-my_path_ending = f'*_freq_range_{freq_range}__eye_threshold_{eye_thresh}__heart_threshold_{heart_thresh}.dat'
+my_path_ending = f'*/*__interpol_line_freq_True__eye_threshold_{eye_thresh}__heart_threshold_{heart_thresh}.dat'
 
-all_files = [str(sub_path) for sub_path in indir.rglob('*') if sub_path.is_file()]
+all_files = [str(sub_path) for sub_path in indir.glob(my_path_ending) if sub_path.is_file()]
 print(len(all_files))
 #
 #%% Load data
 all_df, all_psd = [], []
-for file in all_files[:50]:
+for file in all_files:
     cur_data = joblib.load(file)
     
     if 'ecg_scores' in cur_data.keys() and (cur_data['ecg_scores'] > 0.5).sum() > 0:
@@ -78,43 +78,8 @@ for file in all_files[:50]:
 df_cmb = pd.concat(all_df)
 df_cmb_psd = pd.concat(all_psd)
 #%% Check average psds across subjects
-
-from warnings import warn
-
 avg_psd = df_cmb_psd.groupby(['Frequency (Hz)', 'channel']).mean().reset_index()
 
-def interpolate_line_freq(signal, line_freq, freqs, n_hz_prior):
-    '''
-    This function takes a power spectrum and interpolates the powerline noise.
-    This is done by replacing the value at the powerline freq with the value n Hz beforehand.
-
-    signal: 
-    '''
-    freq_steps = freqs[1] - freqs[0]
-    idx_steps = int(n_hz_prior // freq_steps)
-    if idx_steps < 1:
-        raise ValueError('Interpolation is not done correctly as the to be replaced values are equal to the values that are used for the replacement')
-
-    interpol = signal.copy()
-    for idx, cur_freq in enumerate(freqs):
-        if cur_freq % line_freq == 0 and idx > 0:
-            if freqs[-1] > cur_freq + (freq_steps * idx_steps):
-                interpol[idx-idx_steps:idx+idx_steps] = np.mean([signal[idx-idx_steps], signal[idx+idx_steps]])
-            else:
-                message = f'The Frequency {cur_freq} is too close to the highest frequency in the spectrum. Only indices prior to {cur_freq} are used for the {cur_freq}.'
-                warn(message, UserWarning, stacklevel=2)
-                interpol[idx-idx_steps:idx+idx_steps] = signal[idx-idx_steps]
-    return interpol
-
-
-feature_list = ['Magnetometers (ECG removed)', 'ECG Component Magnetometers', 
-                'Magnetometers (ECG present)', 'ECG Electrode']
-
-
-for cur_channel in avg_psd['channel'].unique():
-    cur_sigs = avg_psd.query(f'channel == {cur_channel}')
-    for cur_feature in feature_list:
-       test = interpolate_line_freq(cur_sigs[cur_feature].to_numpy(), 50, cur_sigs['Frequency (Hz)'].to_numpy(), 2)
 #%%
 my_freqs = '_1_200'
 

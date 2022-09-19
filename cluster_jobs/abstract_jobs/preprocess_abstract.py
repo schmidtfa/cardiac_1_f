@@ -66,9 +66,12 @@ class AbstractPreprocessingJob(Job):
         epochs_heart = run_potato(epochs_heart)            
         
         #%% compute spectra and fooof the data
-        data_no_ica = self._compute_spectra_and_fooof(epochs_no_ica, freq_range, run_on_ecg=False, is_3d=is_3d, interpol_line_freq=interpol_line_freq)
-        data_brain = self._compute_spectra_and_fooof(epochs_brain, freq_range, run_on_ecg=False, is_3d=is_3d, interpol_line_freq=interpol_line_freq)
-        data_heart = self._compute_spectra_and_fooof(epochs_heart, freq_range, run_on_ecg=True, is_3d=is_3d, interpol_line_freq=interpol_line_freq)
+        data_no_ica = self._compute_spectra_and_fooof(epochs_no_ica, freq_range, run_on_ecg=False, 
+                                                      is_3d=is_3d, interpol_line_freq=interpol_line_freq, powerline=powerline)
+        data_brain = self._compute_spectra_and_fooof(epochs_brain, freq_range, run_on_ecg=False, 
+                                                     is_3d=is_3d, interpol_line_freq=interpol_line_freq, powerline=powerline)
+        data_heart = self._compute_spectra_and_fooof(epochs_heart, freq_range, run_on_ecg=True, 
+                                                     is_3d=is_3d, interpol_line_freq=interpol_line_freq, powerline=powerline)
         
         #%%
         data = {'data_no_ica': data_no_ica,
@@ -82,7 +85,7 @@ class AbstractPreprocessingJob(Job):
         joblib.dump(data, self.full_output_path)
 
 
-    def _compute_spectra_and_fooof(self, epochs, freq_range, run_on_ecg, is_3d, interpol_line_freq):
+    def _compute_spectra_and_fooof(self, epochs, freq_range, run_on_ecg, is_3d, interpol_line_freq, powerline):
 
         mags = epochs.copy().pick_types(meg='mag')
         freqs, psd_mag, _ = compute_spectra_ndsp(mags,
@@ -95,8 +98,8 @@ class AbstractPreprocessingJob(Job):
         
         if interpol_line_freq and not is_3d:
             psd_mag = np.array([interpolate_line_freq(psd, freqs=freqs, line_freq=powerline, n_hz_prior=2) for psd in psd_mag])
-        elif interpol_line_freq and is_3d:
-            raise NotImplementedError #TODO: If I decide to care
+        #elif interpol_line_freq and is_3d:
+         #   raise NotImplementedError #TODO: If I decide to care
 
         exponents_mag, offsets_mag,  aps_mag = fooof2aperiodics(freqs, freq_range, psd_mag, is_3d=is_3d)
 

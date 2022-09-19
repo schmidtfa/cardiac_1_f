@@ -110,15 +110,14 @@ def get_fooof_data(fg, param_type='aperiodic_params', param='exponent', impute=T
     '''
     
     params = fg.get_params(param_type, param)
-    if impute == True:  # TH: so, this basically replaces the bad elements with
-                        # the median of all elements?
-        bad_idx = get_good_idx(fg, thresh) == False
-        median = np.median(params)  # TH: Please be aware that this median INCLUDES THE BAD ONES! Is this really what you want?
+    if impute == True:  
+        bad_idx = get_good_idx(fg, thresh=thresh) == False
+        median = np.median(params[~bad_idx])  # TH: Please be aware that this median INCLUDES THE BAD ONES! Is this really what you want?
         params[bad_idx] = median
         
     return params
 
-def get_good_aps(fg):
+def get_good_aps(fg, thresh=2.5):
     
     '''
     This function returns "good" aperiodic components. Good is determined by the quality of the model fit.
@@ -127,7 +126,7 @@ def get_good_aps(fg):
     aps = pd.DataFrame(fg.get_params('aperiodic_params'))
     aps.columns = ['Offset' ,'Exponent']
 
-    aps_clean = aps.loc[get_good_idx(fg, thresh=2)].reset_index()
+    aps_clean = aps.loc[get_good_idx(fg, thresh=thresh)].reset_index()
     return aps_clean
 
 
