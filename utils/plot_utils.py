@@ -76,7 +76,9 @@ def plot_slope_corr(df, key_a, key_b, x, y, color):
     return g
 
 
-def plot_corr_topo(corr, mask, info, title, vmin=None, vmax=None):
+
+
+def plot_corr_topo(corr, mask, info, title, vmin=None, vmax=None, cmap='RdBu_r'):
 
     '''Function to dump a numpy array on an meg helmet'''
     
@@ -91,9 +93,9 @@ def plot_corr_topo(corr, mask, info, title, vmin=None, vmax=None):
                 linewidth=0, markersize=10)
 
     topo = evoked.plot_topomap(times=[0], scalings=1,
-                        time_format=None, #cmap='Reds',
+                        time_format=None, cmap=cmap,
                         vmin=vmin, vmax=vmax,
-                        units='r', cbar_fmt='%0.3f', mask=mask, 
+                        units='beta', cbar_fmt='%0.3f', mask=mask, 
                         mask_params=mask_params, title=title,
                         size=3, time_unit='s');
     return topo
