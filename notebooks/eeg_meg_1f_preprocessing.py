@@ -16,6 +16,7 @@ df_sel.drop_duplicates(subset='subject_id',
                        inplace=True)
 df_sel.reset_index()
 
+
 def run_ica(raw, n_comps=50):
     print('Running ICA. Data is copied and the copy is high-pass filtered at 1Hz')
     raw_copy = raw.copy().filter(l_freq=1, h_freq=None)
@@ -36,13 +37,9 @@ def run_ica(raw, n_comps=50):
     raw_heart = raw.copy()
     raw_no_ica = raw.copy()
 
-    #ica.apply(raw_heart, include=ecg_indices, n_pca_components=len(ecg_indices))
-    brain2exclude = np.delete(np.arange(ica_meg.get_components().shape[1]), ecg_indices)
+    brain2exclude = np.delete(np.arange(ica.get_components().shape[1]), ecg_indices)
     ica.apply(raw_heart, include=ecg_indices, exclude=brain2exclude) #only project back my ecg components
 
-    #% select only eyes
-    
-    #% select everything but heart stuff
     
     if 'eog' in ch_types:
         ica.apply(raw, exclude=ecg_indices + eog_indices)
@@ -76,7 +73,6 @@ for idx in range(df_sel['subject_id'].shape[0]):
     noisy_chs, flat_chs = mne.preprocessing.find_bad_channels_maxwell(raw,
                                                                     calibration=calibration_file,
                                                                     cross_talk=cross_talk_file)
-
     #Load data
     raw.load_data()
 
@@ -117,9 +113,6 @@ for idx in range(df_sel['subject_id'].shape[0]):
         raw.notch_filter(np.arange(powerline, nyquist, powerline), filter_length='auto', phase='zero')
         raw_eeg.notch_filter(np.arange(powerline, nyquist, powerline), filter_length='auto', phase='zero')   
 
-    # % select meg, eeg
-    #raw_meg_no_ica = raw_meg.copy()
-    #raw_eeg_no_ica = raw_eeg.copy()
 
     #% Do the ica
     raw_meg, raw_heart_meg, raw_meg_no_ica, ecg_scores_meg = run_ica(raw_meg)
