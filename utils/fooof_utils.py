@@ -112,38 +112,44 @@ def get_fooof_data(fg, param_type='aperiodic_params', param='exponent', impute=T
     params = fg.get_params(param_type, param)
     if impute == True:  
         bad_idx = get_good_idx(fg, thresh=thresh) == False
-        median = np.median(params[~bad_idx])  # TH: Please be aware that this median INCLUDES THE BAD ONES! Is this really what you want?
+        median = np.median(params)#[~bad_idx])
         params[bad_idx] = median
         
     return params
 
-def get_good_aps(fg, thresh=2.5):
+def get_good_aps(fg, thresh=2.5, fit_knee=False):
     
     '''
     This function returns "good" aperiodic components. Good is determined by the quality of the model fit.
     '''
-
-    aps = pd.DataFrame(fg.get_params('aperiodic_params'))
-    aps.columns = ['Offset' ,'Exponent']
+    if fit_knee:
+        aps = pd.DataFrame(fg.get_params('aperiodic_params'))
+        aps.columns = ['Offset', 'Knee', 'Exponent']
+    else:
+        aps = pd.DataFrame(fg.get_params('aperiodic_params'))
+        aps.columns = ['Offset' ,'Exponent']
 
     aps_clean = aps.loc[get_good_idx(fg, thresh=thresh)].reset_index()
     return aps_clean
 
 
-def fooof2aperiodics(freqs, freq_range, psd, is_3d=False):
+def fooof2aperiodics(freqs, freq_range, psd, is_3d=False, thresh=2.5, fit_knee=False):
 
     '''
     fits a fooof model without peaks to extract and return aperiodics only 
     '''
     
-    fg = FOOOFGroup(max_n_peaks=0) #fit no peaks to speed-up processing
+    if fit_knee:
+        fg = FOOOFGroup(max_n_peaks=0, aperiodic_mode='knee')
+    else:
+        fg = FOOOFGroup(max_n_peaks=0) #fit no peaks to speed-up processing
 
     if is_3d:
         fgs = fit_fooof_3d(fg, freqs, psd, freq_range=freq_range)
         exponents = np.mean([get_fooof_data(fg, param='exponent') for fg in fgs], axis=0)
         offsets = np.mean([get_fooof_data(fg, param='offset') for fg in fgs], axis=0)
 
-        aps_clean = pd.concat([get_good_aps(fg) for fg in fgs]).groupby('index').mean()
+        aps_clean = pd.concat([get_good_aps(fg) for fg in fgs], fit_knee=fit_knee).groupby('index').mean()
 
     else:
         fg.fit(freqs, psd, freq_range=freq_range)
@@ -151,6 +157,6 @@ def fooof2aperiodics(freqs, freq_range, psd, is_3d=False):
         exponents = get_fooof_data(fg, param='exponent')
         offsets = get_fooof_data(fg, param='offset')
 
-        aps_clean = get_good_aps(fg)
+        aps_clean = get_good_aps(fg, thresh=thresh, fit_knee=fit_knee)
 
     return exponents, offsets, aps_clean

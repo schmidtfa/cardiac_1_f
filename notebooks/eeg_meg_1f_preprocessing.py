@@ -8,7 +8,7 @@ import numpy as np
 import joblib
 
 #%%
-df = pd.read_csv('./data/resting_lists_sbg/resting_list.csv')
+df = pd.read_csv('../data/resting_lists_sbg/resting_list.csv')
 df_sel = pd.concat([df.loc[idx] for idx, p in enumerate(df['path']) if 'gw_sleep_pred' in p], axis=1).T
 
 df_sel.drop_duplicates(subset='subject_id', 
@@ -32,23 +32,30 @@ def run_ica(raw, n_comps=50):
     if 'ecg' in ch_types:
         ecg_indices, ecg_scores = ica.find_bads_ecg(raw_copy, measure='correlation', threshold=heart_threshold)
     
-    #%% select heart activity
+    #% select heart activity
     raw_heart = raw.copy()
-    ica.apply(raw_heart, include=ecg_indices, n_pca_components=len(ecg_indices))
-    #%% select everything but heart stuff
+    raw_no_ica = raw.copy()
+
+    #ica.apply(raw_heart, include=ecg_indices, n_pca_components=len(ecg_indices))
+    brain2exclude = np.delete(np.arange(ica_meg.get_components().shape[1]), ecg_indices)
+    ica.apply(raw_heart, include=ecg_indices, exclude=brain2exclude) #only project back my ecg components
+
+    #% select only eyes
+    
+    #% select everything but heart stuff
+    
     if 'eog' in ch_types:
         ica.apply(raw, exclude=ecg_indices + eog_indices)
+        ica.apply(raw_no_ica, exclude=eog_indices)
     else:
         ica.apply(raw, exclude=ecg_indices)
 
-    return raw, raw_heart, ecg_scores
+    return raw, raw_heart, raw_no_ica, ecg_scores
 
 # %%
-#test for eeg -> '19970503pthn'
-#test for meg -> '19991118efkm' <- makes sense as this one is broken
-h_pass, l_pass = 0.1, 45.
+h_pass, l_pass = 0.1, 45. #% -> the 45hz is necessary because i need to downsample a bit for the encoding/decoding part
 notch, powerline = False, 50
-eye_threshold, heart_threshold = 0.5, 0.5
+eye_threshold, heart_threshold = 0.8, 0.4
 
 
 corrs_no_ica_eeg, corrs_no_ica_meg, corrs_ica_eeg, corrs_ica_meg, corrs_ecg_eeg, corrs_ecg_meg = [],[],[],[],[],[]
@@ -67,8 +74,8 @@ for idx in range(df_sel['subject_id'].shape[0]):
                 
     #find bad channels first in meg
     noisy_chs, flat_chs = mne.preprocessing.find_bad_channels_maxwell(raw,
-                                                                  calibration=calibration_file,
-                                                                  cross_talk=cross_talk_file)
+                                                                    calibration=calibration_file,
+                                                                    cross_talk=cross_talk_file)
 
     #Load data
     raw.load_data()
@@ -77,10 +84,10 @@ for idx in range(df_sel['subject_id'].shape[0]):
 
     raw.interpolate_bads()
 
-    #%% find bad channels also in eeg
+    #% find bad channels also in eeg
     raw_eeg = raw.copy().pick_types(eeg=True, ecg=True, eog=True)
     raw_eeg = raw_eeg.set_eeg_reference(ref_channels='average',
-                                              projection=False, verbose=False)
+                                        projection=False, verbose=False)
 
     epo4ransac = mne.make_fixed_length_epochs(raw_eeg, duration=4)
     epo4ransac.load_data().pick_types(eeg=True, ecg=False, eog=False)
@@ -93,41 +100,43 @@ for idx in range(df_sel['subject_id'].shape[0]):
     raw_eeg.info['bads'] = bad_chs_eeg
     raw_eeg = interpolate_bads(raw_eeg, raw_eeg.info['bads'])
             
-    #%% Apply filters
+    #% Apply filters
     raw_meg = raw.copy().pick_types(meg='mag', ecg=True, eog=True, eeg=False)
 
     raw_meg.filter(l_freq=h_pass, h_freq=l_pass)
     raw_eeg.filter(l_freq=h_pass, h_freq=l_pass)
 
-    #%% downsample data
-    raw_meg.resample(100)
-    raw_eeg.resample(100)
+    #% downsample data (if sufficient lpass filter)
+    if l_pass < 50:
+        raw_meg.resample(100)
+        raw_eeg.resample(100)
 
     if notch:
         nyquist = raw.info['sfreq'] / 2
         print(f'Running notch filter using {powerline}Hz steps. Nyquist is {nyquist}')
         raw.notch_filter(np.arange(powerline, nyquist, powerline), filter_length='auto', phase='zero')
         raw_eeg.notch_filter(np.arange(powerline, nyquist, powerline), filter_length='auto', phase='zero')   
-    
-    # %% select meg, eeg
-    raw_meg_no_ica = raw_meg.copy()
-    raw_eeg_no_ica = raw_eeg.copy()
 
-    #%% Do the ica
-    raw_meg, raw_heart_meg, ecg_scores_meg = run_ica(raw_meg)
-    raw_eeg, raw_heart_eeg, ecg_scores_eeg = run_ica(raw_eeg, n_comps=None)
-             
+    # % select meg, eeg
+    #raw_meg_no_ica = raw_meg.copy()
+    #raw_eeg_no_ica = raw_eeg.copy()
+
+    #% Do the ica
+    raw_meg, raw_heart_meg, raw_meg_no_ica, ecg_scores_meg = run_ica(raw_meg)
+    raw_eeg, raw_heart_eeg, raw_eeg_no_ica, ecg_scores_eeg = run_ica(raw_eeg, n_comps=None)
+                
     data2save = {'eeg': {'no_ica_eeg': raw_eeg_no_ica.to_data_frame(),
-                         'heart_eeg': raw_heart_eeg.to_data_frame(),
-                         'ica_eeg': raw_eeg.to_data_frame(),
-                         'labels': raw_eeg_no_ica.ch_names,
-                         'fs': raw_eeg_no_ica.info['sfreq']},
-                 'ecg_scores': {'eeg': ecg_scores_eeg,
+                        'heart_eeg': raw_heart_eeg.to_data_frame(),
+                        'ica_eeg': raw_eeg.to_data_frame(),
+                        'labels': raw_eeg_no_ica.ch_names,
+                        'fs': raw_eeg_no_ica.info['sfreq']},
+                'ecg_scores': {'eeg': ecg_scores_eeg,
                                 'meg': ecg_scores_meg},
-                 'meg': {'no_ica_meg': raw_meg_no_ica.to_data_frame(),
-                         'heart_meg': raw_heart_meg.to_data_frame(),
-                         'ica_meg': raw_meg.to_data_frame(),
-                         'labels': raw_meg_no_ica.ch_names,
-                         'fs': raw_meg_no_ica.info['sfreq']}}
+                'meg': {'no_ica_meg': raw_meg_no_ica.to_data_frame(),
+                        'heart_meg': raw_heart_meg.to_data_frame(),
+                        'ica_meg': raw_meg.to_data_frame(),
+                        'labels': raw_meg_no_ica.ch_names,
+                        'fs': raw_meg_no_ica.info['sfreq']}}
 
-    joblib.dump(data2save, join('/mnt/obob/staff/fschmidt/cardiac_1_f/data/data_sim_meeg', f'{cur_subject}.dat'))
+    joblib.dump(data2save, join('/mnt/obob/staff/fschmidt/cardiac_1_f/data/data_sim_meeg', f'{cur_subject}.dat')) # _bp_freq_{h_pass}_{l_pass}_h_thresh_{heart_threshold}
+# %%

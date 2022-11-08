@@ -2,17 +2,21 @@
 import pandas as pd
 import bambi as bmb
 import pymc as pm
-import aesara.tensor as at
-import pingouin as pg
 import joblib
 from pathlib import Path
-import numpy as np
+import numpy as np#
 import mne
-import eelbrain as eb
-
+from scipy.stats import zscore
 import matplotlib.pyplot as plt
 import seaborn as sns
 import arviz as az
+import matplotlib.patheffects as pe
+
+import sys
+sys.path.append('/mnt/obob/staff/fschmidt/cardiac_1_f')
+
+from utils.pymc_utils import coefficients2pcorrs, aggregate_sign_feature
+from utils.plot_utils import plot_ridge, plot_bayes_linear_regression
 
 import matplotlib as mpl
 new_rc_params = {'text.usetex': False,
@@ -23,22 +27,34 @@ mpl.rcParams.update(new_rc_params)
 sns.set_context('poster')
 sns.set_style('ticks')
 
+#a seed for reproducibility
+import random
+random.seed(42069)
+
+
+brms_kwargs = {'draws': 2000,
+               'tune': 2000,
+               'chains': 4,
+               'target_accept': 0.9,}
+
 #%%
-heart_thresh, eye_thresh = 0.5, 0.5
-freq_range = [1, 200]
+heart_thresh, eye_thresh = 0.4, 0.8
 
 indir = Path('/mnt/obob/staff/fschmidt/cardiac_1_f/data/data_cam_can')
-my_path_ending = f'*/*__interpol_line_freq_True__eye_threshold_{eye_thresh}__heart_threshold_{heart_thresh}.dat'
+my_path_ending = f'*/*[[]0.1, 45[]]__eye_threshold_{eye_thresh}__heart_threshold_{heart_thresh}.dat'
 
 all_files = [str(sub_path) for sub_path in indir.glob(my_path_ending) if sub_path.is_file()]
 print(len(all_files))
 #
 #%% Load data
 all_df, all_psd = [], []
-for file in all_files:
+for idx, file in enumerate(all_files):
+
+    print(f'cur index is {idx}/{len(all_files)}')
+
     cur_data = joblib.load(file)
     
-    if 'ecg_scores' in cur_data.keys() and (cur_data['ecg_scores'] > 0.5).sum() > 0:
+    if 'ecg_scores' in cur_data.keys() and (cur_data['ecg_scores'] > heart_thresh).sum() > 0:
     
         def make_data_meg(cur_data, key):
             cur_psd = pd.DataFrame(cur_data['psd'])
@@ -73,21 +89,39 @@ for file in all_files:
                                     'brain_slope_avg': cur_data['data_brain']['mag']['aps_mag']['Exponent'].mean(),
                                     'no_ica_slope_avg': cur_data['data_no_ica']['mag']['aps_mag']['Exponent'].mean(),
                                     'channel': np.arange(102),
+                                    'n_components': (cur_data['ecg_scores'] > heart_thresh).sum(),
+                                    'explained_variance_ratio': cur_data['explained_variance_ecg']['mag'],
                                     'subject_id': cur_data['subject_id'],
                                     'age': float(cur_data['age'])}))
 df_cmb = pd.concat(all_df)
+#df_cmb.to_csv('../data/cam_can_1_f_dataframe_1_145.csv')
 df_cmb_psd = pd.concat(all_psd)
+#df_cmb_psd.to_csv('../data/cam_can_1_f_dataframe_1_145_psd.csv')
+
+#%%
+cur_df_cmb = df_cmb.query('channel == 0')
+
+#%%get basic demographics
+dem_dict = {'n_subj': len(cur_df_cmb['subject_id'].unique()),
+            'mean_age': cur_df_cmb['age'].mean(),
+            'std_age': cur_df_cmb['age'].std(),
+            'min': cur_df_cmb['age'].min(),
+            'max': cur_df_cmb['age'].max(),}
+
+print(dem_dict)
+
 #%% Check average psds across subjects
 avg_psd = df_cmb_psd.groupby(['Frequency (Hz)', 'channel']).mean().reset_index()
 
 #%%
-my_freqs = '_1_200'
+my_freqs = '_1_145'
 
 fig, ax = plt.subplots()
 sns.lineplot(x='Frequency (Hz)', y='Magnetometers (ECG removed)',
              hue="channel",
              data=avg_psd, ax=ax)
 fig.set_size_inches(6,6)
+plt.xlim(0.5, 145)
 plt.xscale('log')
 plt.yscale('log')
 fig.savefig(f'../results/mags_ga_ecg_removed{my_freqs}.svg')
@@ -97,6 +131,7 @@ sns.lineplot(x='Frequency (Hz)', y='ECG Component Magnetometers',
              hue="channel",
              data=avg_psd, ax=ax)
 fig.set_size_inches(6,6)
+plt.xlim(0.5, 145)
 plt.xscale('log')
 plt.yscale('log')
 fig.savefig(f'../results/mags_ga_ecg_component{my_freqs}.svg')
@@ -106,153 +141,316 @@ sns.lineplot(x='Frequency (Hz)', y='Magnetometers (ECG present)',
              hue="channel",
              data=avg_psd, ax=ax)
 fig.set_size_inches(6,6)
+plt.xlim(0.5, 145)
 plt.xscale('log')
 plt.yscale('log')
 fig.savefig(f'../results/mags_ga_ecg_present{my_freqs}.svg')
 
+
+#%% slope ecg not rejected
+md_no_ica = bmb.Model(data=cur_df_cmb, 
+                    formula='no_ica_slope_avg ~ 1 + age', 
+                    dropna=True,
+                    family='t'
+                    )
+md_no_ica.build()
+
+mdf_no_ica = md_no_ica.fit(**brms_kwargs)
+sum_no_ica = az.summary(mdf_no_ica)
+md_no_ica.predict(mdf_no_ica) # needed for plotting
+md_no_ica.predict(mdf_no_ica, kind='pps') #do posterior pred checks
+
+#%%
+
+g_ecg_present = plot_bayes_linear_regression(df=cur_df_cmb, fitted=mdf_no_ica, 
+                                          line_color='#8da0cb',
+                                          x_key='age', y_key='no_ica_slope_avg',
+                                          add_ppm=True)
+g_ecg_present.figure.set_size_inches(4,4)
+g_ecg_present.set_xlabel('age (years)')
+g_ecg_present.set_ylabel('1/f slope')
+g_ecg_present.set_ylim(0.5, 2.5)
+sns.despine()
+#g_ecg_present.figure.savefig(f'../results/pred_no_ica_avg_{my_freqs}.svg')
+
+#%% ecg component only
+md_comp_ecg = bmb.Model(data=cur_df_cmb, 
+                    formula='heart_slope_avg ~ 1 + age', 
+                    dropna=True,
+                    family='t')
+md_comp_ecg.build()
+
+mdf_comp_ecg = md_comp_ecg.fit(**brms_kwargs)
+sum_comp_ecg = az.summary(mdf_comp_ecg)
+
+md_comp_ecg.predict(mdf_comp_ecg) # needed for plotting
+md_comp_ecg.predict(mdf_comp_ecg, kind='pps') #do posterior pred checks
+
+#az.plot_ppc(mdf_comp_ecg)
+
+g_ecg_comp = plot_bayes_linear_regression(df=cur_df_cmb, fitted=mdf_comp_ecg, 
+                                          line_color='#66c2a5',
+                                          x_key='age', y_key='heart_slope_avg',
+                                          add_ppm=True)
+g_ecg_comp.figure.set_size_inches(4,4)
+g_ecg_comp.set_xlabel('age (years)')
+g_ecg_comp.set_ylabel('1/f slope')
+g_ecg_comp.set_ylim(0.5, 2.5)
+sns.despine()
+#g_ecg_comp.figure.savefig(f'../results/pred_heart_slope_avg_{my_freqs}.svg', )
+
+#%% check total variance explained by ecg components and average amount of components extracted
+n_comp = cur_df_cmb['n_components'].mean()
+n_comp_std = cur_df_cmb['n_components'].std()
+
+print(f'a total of {n_comp} components (STD: {n_comp_std}) were rejected')
+
+#%% slope ecg rejected
+md_ica = bmb.Model(data=cur_df_cmb, 
+                    formula='brain_slope_avg ~ 1 + age', 
+                    dropna=True,
+                    family='t'
+                    )
+md_ica.build()
+
+mdf_ica = md_ica.fit(**brms_kwargs)
+sum_ica = az.summary(mdf_ica, round_to=None)
+
+md_ica.predict(mdf_ica) # needed for plotting
+md_ica.predict(mdf_ica, kind='pps') #do posterior pred checks
+
+#az.plot_ppc(mdf_ica)
+#%
+g_ica_comp = plot_bayes_linear_regression(df=cur_df_cmb, fitted=mdf_ica, 
+                                          line_color='#fc8d62',
+                                          x_key='age', y_key='brain_slope_avg',
+                                          add_ppm=True)
+g_ica_comp.figure.set_size_inches(4,4)
+g_ica_comp.set_xlabel('age (years)')
+g_ica_comp.set_ylabel('1/f slope')
+g_ica_comp.set_ylim(0.5, 2.5)
+sns.despine()
+#g_ica_comp.figure.savefig(f'../results/pred_brain_slope_avg_{my_freqs}.svg', )
+
+#%% refit all models with standardized betas to make them comparable
+cur_df_z = zscore(cur_df_cmb[['heart_slope_avg', 'brain_slope_avg', 'no_ica_slope_avg', 'age']], axis=0)
+
+
+mdf_comp_ecg_z = bmb.Model(data=cur_df_z, 
+                    formula='heart_slope_avg ~ 1 + age', 
+                    dropna=True,
+                    family='t').fit(**brms_kwargs)
+
+mdf_no_ica_z = bmb.Model(data=cur_df_z, 
+                    formula='no_ica_slope_avg ~ 1 + age', 
+                    dropna=True,
+                    family='t').fit(**brms_kwargs)
+
+mdf_ica_z = bmb.Model(data=cur_df_z, 
+                    formula='brain_slope_avg ~ 1 + age', 
+                    dropna=True,
+                    family='t').fit(**brms_kwargs)
+
+#%% add standardized betas as stats
+az.summary(mdf_no_ica_z)
+#%%
+az.summary(mdf_ica_z)
+#%%
+az.summary(mdf_comp_ecg_z)
+
+#%%
+df2density = pd.DataFrame({'ECG not rejected': mdf_no_ica_z.posterior['age'].to_numpy().flatten(),
+              'ECG rejected': mdf_ica_z.posterior['age'].to_numpy().flatten(),
+              'ECG component': mdf_comp_ecg_z.posterior['age'].to_numpy().flatten(),
+             })
+
+df2density_tidy = df2density.melt()
+
+#%%
+(df2density['ECG not rejected'] > df2density['ECG rejected']).mean()
+
+
+#%%
+sns.set_style('ticks')
+sns.set_context('poster')
+
+my_colors = ['#8da0cb', '#fc8d62', '#66c2a5']
+
+g = plot_ridge(df2density_tidy, 'variable', 'value', pal=my_colors, aspect=5, xlim=(-0.1, .5), height=0.6)
+g.set_xlabels('β (standardized)')
+g.figure.savefig('../results/beta_comp_cam_can.svg')
+
+#%% plot age distribution
+fig, ax = plt.subplots(figsize=(4, 4))
+cur_df_cmb['age'].plot(kind='hist', color='#777777', density=True)
+cur_df_cmb['age'].plot(kind='kde', color='#990F02')
+ax.set_xlabel('age (years)')
+ax.set_ylabel('Density')
+ax.set_xlim(0, 100)
+sns.despine()
+ax.figure.savefig('../results/age_dist_cam_can.svg')
+
+#%% run combined model
+# note i am only using heart components and meg data without heart components here.
+# as both originate from the no ica data it makes no sense adding this as additional predictor
+with pm.Model() as multi_regression:
+
+    # set some more or less informativ priors
+    b0 = pm.Normal("Intercept", 50, 20)
+    b1 = pm.Normal('heart_slope_avg', 0, 10)
+    b2 = pm.Normal('brain_slope_avg', 0, 10)
+    sigma = pm.HalfCauchy("sigma", beta=2.5)
+
+    #regression
+    mu = (b0 + b1 * cur_df_cmb['heart_slope_avg'].values 
+             + b2 * cur_df_cmb['brain_slope_avg'].values)
+
+    # likelihood -> we are predicting age here with is uncommon but gives us the chance to control for contributions of different predictors
+    y = pm.TruncatedNormal('age', mu=mu, lower=18, upper=90, sigma=sigma, 
+                            observed=cur_df_cmb['age'].values)
+
+    mdf = pm.sample(**brms_kwargs)
+
+
+#%%
+with multi_regression:
+   pm.sample_posterior_predictive(mdf, extend_inferencedata=True)
+
+az.plot_ppc(mdf)            
+
+#%%
+az.summary(mdf)
+
+# %% plot complete posterior distribution
+slope_brain = mdf.posterior['brain_slope_avg'].values.flatten()
+slope_heart = mdf.posterior['heart_slope_avg'].values.flatten()
+intercept = mdf.posterior["Intercept"].stack(draws=("chain", "draw")).values
+
+sns.set_context('poster')
+sns.set_style('ticks')
+
+x_range = np.array([0.5, 2.5])
+#np.array([df_heart_brain['heart_slope_mag'].min(), df_heart_brain['heart_slope_mag'].max()])
+#brain_min_max = np.array([df_heart_brain['brain_slope'].min(), df_heart_brain['brain_slope'].max()])
+
+fig = plt.figure()
+
+plt.plot(x_range, intercept.mean() + slope_heart.mean() * x_range, color='#66c2a5',
+         path_effects=[pe.Stroke(linewidth=5, foreground='w'), pe.Normal()])
+plt.plot(x_range, intercept + slope_heart * x_range[:, None], 
+          color='#66c2a5', zorder=1, lw=0.1, alpha=0.1)
+
+plt.plot(x_range, intercept.mean() + slope_brain.mean() * x_range, color='#FC8D62',
+        path_effects=[pe.Stroke(linewidth=5, foreground='w'), pe.Normal()])
+plt.plot(x_range, intercept + slope_brain * x_range[:, None], 
+          color='#FC8D62', zorder=1, lw=0.1, alpha=0.1)
+
+plt.xlabel("1/f slope")
+plt.ylabel("age (years)");
+sns.despine()
+
+fig.set_size_inches(4,4)
+fig.savefig('../results/age_pred_slope_ecg_vs_ica_all_sens.svg')
+
+#%% visualize partial correlation
+pcorrs = coefficients2pcorrs(df4mdf=cur_df_cmb, mdf=mdf, response_var='age', predictor_vars=['heart_slope_avg', 'brain_slope_avg'])
+
+pal = ['#66c2a5', '#fc8d62']
+
+g = plot_ridge(pcorrs, 'predictors', 'partial correlation coefficient', pal=pal, aspect=5, xlim=(-0.2, .6))
+
+g.figure.savefig('../results/partial_corr_heart_brain_age_all_sens.svg')
+
+
+# %% run models across significant channels
+
+#% throw in eelbrain
+pos_mask_heart = pd.read_csv('../results/cam_can_pred_bayes.csv')['pos_heart'].to_numpy()
+pos_mask_no_ica = pd.read_csv('../results/cam_can_pred_bayes.csv')['pos_no_ica'].to_numpy()
+pos_mask_brain = pd.read_csv('../results/cam_can_pred_bayes.csv')['pos_ica'].to_numpy()
+
+df2agg_heart = df_cmb[['heart_slope_mag', 'subject_id', 'channel', 'age']].reset_index()
+df2agg_no_ica = df_cmb[['brain_no_ica', 'subject_id', 'channel', 'age']].reset_index()
+df2agg_brain = df_cmb[['brain_slope', 'subject_id', 'channel', 'age']].reset_index()
+
+df_heart = aggregate_sign_feature(df2agg_heart, 'heart_slope_mag', pos_mask_heart)
+df_no_ica = aggregate_sign_feature(df2agg_no_ica, 'brain_no_ica', pos_mask_no_ica)
+df_brain = aggregate_sign_feature(df2agg_brain, 'brain_slope', pos_mask_brain)
+
+#%%
+df_brain.drop(columns='age', inplace=True)
+df_heart_brain = df_heart.merge(df_brain, on='subject_id')
+
+#%%
+with pm.Model() as regression:
+
+    # set some more or less informativ priors
+    b0 = pm.Normal("Intercept", 50, 20)
+    b1 = pm.Normal('heart_slope_mag', 0, 10)
+    b2 = pm.Normal('brain_slope', 0, 10)
+    sigma = pm.HalfCauchy("sigma", beta=2.5)
+
+    #regression
+    mu = (b0 + b1 * df_heart_brain['heart_slope_mag'].values 
+             + b2 * df_heart_brain['brain_slope'].values)
+
+    # likelihood
+    y = pm.TruncatedNormal('age', mu=mu, lower=18, upper=90, sigma=sigma, 
+                            observed=df_heart_brain['age'].values)
+
+    mdf = pm.sample(**brms_kwargs)
+
+#%%
+with regression:
+   pm.sample_posterior_predictive(mdf,  extend_inferencedata=True)
+
+az.plot_ppc(mdf)
+
+#%%
+pcorrs = coefficients2pcorrs(df4mdf=df_heart_brain, mdf=mdf, response_var='age', predictor_vars=['heart_slope_mag', 'brain_slope'])
+
+#%%
+import matplotlib.pyplot as plt
+pal = ['#66c2a5', '#fc8d62']
+
+g = plot_ridge(pcorrs, 'predictors', 'partial correlation coefficient', pal=pal, aspect=5, xlim=(-0.1, .6))
+
+g.figure.savefig('../results/partial_corr_heart_brain_age.svg')
+ # %%
+
+sns.set_style('ticks')
+sns.set_context('talk')
+
+slope_brain = mdf.posterior['brain_slope'].values.flatten()
+slope_heart = mdf.posterior['heart_slope_mag'].values.flatten()
+intercept = mdf.posterior["Intercept"].stack(draws=("chain", "draw")).values
+
+x_range = np.array([0.5, 2.5])
+#np.array([df_heart_brain['heart_slope_mag'].min(), df_heart_brain['heart_slope_mag'].max()])
+#brain_min_max = np.array([df_heart_brain['brain_slope'].min(), df_heart_brain['brain_slope'].max()])
+
+fig = plt.figure()
+
+plt.plot(x_range, intercept.mean() + slope_heart.mean() * x_range, color='#66c2a5',
+         path_effects=[pe.Stroke(linewidth=5, foreground='w'), pe.Normal()])
+plt.plot(x_range, intercept + slope_heart * x_range[:, None], 
+          color='#66c2a5', zorder=1, lw=0.1, alpha=0.1)
+
+plt.plot(x_range, intercept.mean() + slope_brain.mean() * x_range, color='#FC8D62',
+        path_effects=[pe.Stroke(linewidth=5, foreground='w'), pe.Normal()])
+plt.plot(x_range, intercept + slope_brain * x_range[:, None], 
+          color='#FC8D62', zorder=1, lw=0.1, alpha=0.1)
+
+plt.xlabel("1/f slope")
+plt.ylabel("age (years)");
+sns.despine()
+
+fig.set_size_inches(4,4)
+fig.savefig('../results/age_pred_slope_ecg_vs_ica.svg')
 # %%
-subject_list = df_cmb_psd['subject_id'].unique()
-
-all_r_heart, all_r_brain = [], []
-
-# correlation of powerspectra with and without heartcomponent with the ecg electrode (grandaverage across channels)
-for subject in subject_list:
-    cur_df = df_cmb_psd.query(f'subject_id == "{subject}"')
-
-    r_heart_cur_chan, r_brain_cur_chan = [], []
-    for channel in range(102):
-        cur_chan = cur_df.query(f'channel == {channel}')
-
-        r_brain_cur_chan.append(float(pg.corr(cur_chan['Magnetometers (ECG present)'], cur_chan['ECG Electrode'])['r']))
-        r_heart_cur_chan.append(float(pg.corr(cur_chan['ECG Component Magnetometers'], cur_chan['ECG Electrode'])['r']))
-
-    all_r_brain.append(np.mean(r_brain_cur_chan))
-    all_r_heart.append(np.mean(r_heart_cur_chan))
-#%%
-df_ecg_corr = pd.DataFrame({'no ECG Comps.': all_r_brain,
-                            'ECG Comps.': all_r_heart,
-                            'subject': np.arange(len(all_r_heart))}).melt(id_vars='subject')
-
-#maybe retain subject id and remove very bad fitting subjects
-df_ecg_corr.columns = ['subject', 'Magnetometers', 'Correlation ECG Electrode (r)']
-
-cmap=['#66c2a5', '#fc8d62']
-
-g = sns.catplot(data = df_ecg_corr, x='Magnetometers', 
-                y='Correlation ECG Electrode (r)', aspect=1,
-                palette=cmap)
-#g.set_ylabels('')
-g.figure.set_size_inches(5, 5, forward=True)
-g.figure.savefig('../results/corr_comp_ecg_mags.svg')
-
-#%%
-pg.pairwise_ttests(data=df_ecg_corr, dv='Correlation ECG Electrode (r)', within='Magnetometers', subject='subject')
-
-# %%
-cur_df_cmb = df_cmb.query('channel == 0')
-
-#%%
-def plot_slope_age_corr(key, x, y, color):
-    corr = pg.corr(cur_df_cmb['age'], cur_df_cmb[key])
-    print(corr)
-    g = sns.lmplot(data=cur_df_cmb, x='age', y=key, line_kws={'color': color},
-                   scatter_kws={"s": 40, 'color': '#888888', 'alpha': 0.25})
-
-    r = round(float(corr['r']), 2)
-    p = round(float(corr['p-val']), 3)
-
-    if p == 0.0:
-        p = 'p < 0.001'
-    else:
-        p = f'p = {p}'
-
-    plt.annotate(text=f'r = {r}', xy=(x, y))
-    plt.annotate(text=p, xy=(x, y - 0.2))
-
-    g.set_xlabels('age (years)')
-    g.set_ylabels('1/f slope')
-    g.ax.figure.savefig(f'../results/corr_{key}_{my_freqs}.svg', )
-
-#%%
-md = bmb.Model(formula='age ~ brain_slope_avg', data=cur_df_cmb)
-mdf = md.fit()
-
-#%%
-plot_slope_age_corr('no_ica_slope_avg', 20, 2., '#e78ac3')
-#%%
-plot_slope_age_corr('brain_slope_avg', 20, 2., '#66c2a5')
-#%%
-plot_slope_age_corr('heart_slope_avg', 20, 1.6, '#fc8d62')
-#%%
-plot_slope_age_corr('heart_slope', 20, 2.2, '#8da0cb')
-
-#%%
-pg.corr(cur_df_cmb['heart_slope'], cur_df_cmb['heart_slope_avg'])
-
-corr = pg.corr(cur_df_cmb['heart_slope'], cur_df_cmb['heart_slope_avg'])
-print(corr)
-g = sns.lmplot(data=cur_df_cmb, x='heart_slope', y='heart_slope_avg', line_kws={'color': '#ffd92f'},
-                   scatter_kws={"s": 40, 'color': '#888888', 'alpha': 0.25})
-
-r = round(float(corr['r']), 2)
-p = round(float(corr['p-val']), 3)
-
-if p == 0.0:
-    p = 'p < 0.001'
-else:
-    p = f'p = {p}'
-
-plt.annotate(text=f'r = {r}', xy=(2, 1.6))
-plt.annotate(text=p, xy=(2, 1.6 - 0.2))
-
-g.set_xlabels('1/f slope (ECG)')
-g.set_ylabels('1/f slope (ECG Component)')
-g.ax.figure.savefig(f'../results/corr_heart_heart_{my_freqs}.svg', )
-
-
-
-# %%
-df_cmb.to_csv('../data/cam_can_1_f_dataframe_1_200.csv')
-df_cmb_psd.to_csv('../data/cam_can_1_f_dataframe_1_200_psd.csv')
-# %% visualize per channel
-import fnmatch
-
-corrs_no_ica, corrs_ica, corrs_ecg_comp, corrs_ecg = [], [], [], []
-
-for channel in df_cmb.channel.unique():
-    cur_df = df_cmb.query(f'channel == {channel}')
-    corrs_no_ica.append(pg.corr(cur_df['brain_no_ica'], cur_df['age']))
-    corrs_ica.append(pg.corr(cur_df['brain_slope'], cur_df['age']))
-    corrs_ecg_comp.append(pg.corr(cur_df['heart_slope_mag'], cur_df['age']))
-
-
-    corrs_ecg.append(pg.corr(cur_df['heart_slope_mag'], cur_df['heart_slope']))
-    
-    
-
-corr_ica_df = pd.concat(corrs_ica)
-corr_no_ica_df = pd.concat(corrs_no_ica)
-corr_ecg_df = pd.concat(corrs_ecg)
-corr_ecg_comp_df = pd.concat(corrs_ecg_comp)
-
-info = mne.io.read_info('/mnt/sinuhe/data_raw/ss_cocktailparty/subject_subject/210503/19930422eibn_resting.fif',
-                        verbose=False)
-mag_adjacency = mne.channels.find_ch_adjacency(info, 'mag')
-grad_adjacency = mne.channels.find_ch_adjacency(info, 'grad')
-
-
-info_meg = mne.pick_info(info, mne.pick_types(info, meg=True))
-
-info_mags = mne.pick_info(info, mne.pick_types(info, meg='mag'))
-
-info_grads = mne.pick_info(info, mne.pick_types(info, meg='grad'))
-
-labels_meg = info['ch_names'][15:321]
-get_feature = lambda feature: np.array([True if fnmatch.fnmatch(label, feature) else False for label in labels_meg])
-mag_idx = get_feature('MEG*1')
-grad_idx = ~mag_idx
-
-def plot_corr_topo(corr, mask, info, title, vmin=None, vmax=None):
+az.summary(mdf)
+# %% see whether exponent is actually reduced after removing 1/f
+def plot_topo(corr, mask, info, title, vmin=None, vmax=None, cmap='RdBu_r'):
     
     sns.set_style('ticks')
     sns.set_context('talk')
@@ -265,156 +463,48 @@ def plot_corr_topo(corr, mask, info, title, vmin=None, vmax=None):
                 linewidth=0, markersize=10)
 
     topo = evoked.plot_topomap(times=[0], scalings=1,
-                        time_format=None, #cmap='Reds',
+                        time_format=None, cmap=cmap,
                         vmin=vmin, vmax=vmax,
-                        units='r', cbar_fmt='%0.3f', mask=mask, 
+                        units='beta', cbar_fmt='%0.3f', mask=mask, 
                         mask_params=mask_params, title=title,
                         size=3, time_unit='s');
     return topo
+# %% get some info structure for plotting
+info = mne.io.read_info('/mnt/sinuhe/data_raw/ss_cocktailparty/subject_subject/210503/19930422eibn_resting.fif',
+                        verbose=False)
+mag_adjacency = mne.channels.find_ch_adjacency(info, 'mag')
+
+info_mags = mne.pick_info(info, mne.pick_types(info, meg='mag'))
+# %%
+df_brain_exp = df_cmb[['brain_slope', 'channel', 'subject_id']].pivot(columns='channel', index='subject_id')['brain_slope']
+df_no_ica_exp = df_cmb[['brain_no_ica', 'channel', 'subject_id']].pivot(columns='channel', index='subject_id')['brain_no_ica']
+#%%
+
+ch_list = []
+
+for cur_ch in df_cmb['channel'].unique():
+
+    print(f'cur channel is: {cur_ch}')
+
+    cur_df2test = pd.DataFrame({'no_ica' : df_no_ica_exp[cur_ch].to_numpy(),
+                                'brain' : df_brain_exp[cur_ch].to_numpy(),
+                                'subject_id': df_brain_exp[cur_ch]
+                                }).melt(id_vars='subject_id')
+
+    cur_mdf_diff = bmb.Model('value ~ 1 + variable + (1|subject_id)', cur_df2test).fit()
+
+    cur_ch_df = pd.DataFrame(az.summary(cur_mdf_diff).loc['variable[no_ica]']).T
+    cur_ch_df['channel'] = cur_ch
+    ch_list.append(cur_ch_df)
+# %%
+contrast_exp_df = pd.concat(ch_list).reset_index()
 
 
 # %%
-plot_corr_topo(corr_no_ica_df['r'], corr_no_ica_df['p-val'] < 0.05, info_mags, 'Correlation age per chan (no ica)', vmin=-0.35, vmax=0.35);
+mask4diff = np.logical_xor((contrast_exp_df['hdi_3%'] > 0).to_numpy(),
+                           (contrast_exp_df['hdi_97%'] < 0).to_numpy())
 # %%
-plot_corr_topo(corr_ica_df['r'], corr_ica_df['p-val'] < 0.05, info_mags, 'Correlation age per chan (ica)', vmin=-0.35, vmax=0.35);
+topo_ica_no_ica = plot_topo(corr=contrast_exp_df['mean'].to_numpy(), 
+          mask=mask4diff, info=info_mags, title='', vmin=None, vmax=None, cmap='RdBu_r');
+topo_ica_no_ica.figure.savefig('../results/topo_ica_no_ica_exp_diff.svg')
 # %%
-plot_corr_topo(corr_ecg_comp_df['r'], corr_ecg_comp_df['p-val'] < 0.05, info_mags, 'Correlation age per chan (ica)', vmin=-0.35, vmax=0.35);
-# %%
-plot_corr_topo(corr_ecg_df['r'], corr_ecg_df['p-val'] < 0.05, info_mags, 'Correlation ECG per chan (ica)');# vmin=-0.35, vmax=0.35);
-
-# %% throw in eelbrain
-def aggregate_sign_feature(feature_key, pos_mask):
-    df_brain = df_cmb[[feature_key, 'subject_id', 'heart_slope', 'channel']].reset_index()
-    feature_by_age = []
-
-
-    for subject in df_brain['subject_id'].unique():
-            cur_subject = df_brain.query(f'subject_id == "{subject}"')
-            feature_by_age.append(cur_subject
-                                         .sort_values(by='channel')[pos_mask]
-                                         .mean()[[feature_key,'heart_slope']])
-
-    df = pd.concat(feature_by_age, axis=1).T
-    return df
-
-#%%
-feature_key = 'heart_slope_mag'
-pos_mask = np.array(corr_ecg_df['r'] < -0.14)
-df = aggregate_sign_feature(feature_key, pos_mask)
-#%%
-pg.corr(df[feature_key], df['heart_slope'])
-
-#%% combined model
-from scipy.stats import zscore
-from sklearn import preprocessing
-
-#%%
-df_cmb['heart_norm'] = preprocessing.normalize(df_cmb['heart_slope'].to_numpy().reshape(1,-1)).flatten()
-df_cmb['heart_mag_norm'] = preprocessing.normalize(df_cmb['heart_slope_mag'].to_numpy().reshape(1,-1)).flatten()
-df_cmb['brain_norm'] = preprocessing.normalize(df_cmb['brain_slope'].to_numpy().reshape(1,-1)).flatten()
-#%%
-
-
-brms_kwargs = {'draws': 1000,
-               'tune': 1000,
-               'chains': 2,
-               'target_accept': 0.98,}
-
-md = bmb.Model(data=df_cmb, 
-                    formula='age ~ 1 + (1 + brain_slope + heart_slope_mag | channel)', 
-                    dropna=True,
-                    family='t'
-                    )
-#  + brain_no_ica
-md.build()
-
-#
-# #%%              
-mdf = md.fit(**brms_kwargs)
-
-#%%
-az.to_netcdf(mdf, '../results/cam_can_trace_regr_short_all_bmb_1_200.ncdf')
-#%%
-mdf_summary = az.summary(mdf)
-# %%
-az.plot_trace(mdf)
-
-#%%
-mask = [True if 'brain' in id else False for id in mdf_summary.index]
-intercept_mask = [True if '1|' in id else False for id in mdf_summary.index]
-#%%
-(mdf_summary[mask]['hdi_3%'] > 0).sum()
-
-#%%
-(mdf_summary[mask]['hdi_97%'] < 0).sum()
-# %% try to put everything in one pymc model
-
-
-#%% all in one pymc
-def do_bayesian_correlation(df, key_a, key_b, sampling_kwargs, 
-                            do_prior_checks=False, do_posterior_checks=False, sample=True):
-
-    '''
-    This function computes a bayesian correlation over a set of coordinates between two variables. 
-    This is mainly a function for documentation purposes and ease of use. 
-    When applying this to different data most parts would need to be changed.
-    '''
-
-    channel_idxs, channel = pd.factorize(df['channel'])
-    coords = {'channel': channel,
-              'channel_ids': np.arange(len(channel_idxs))}
-
-    with pm.Model(coords=coords):
-        channel_idx = pm.Data("channel_idx", channel_idxs, dims="channel_ids", mutable=False)
-
-        # set some more or less informative priors here
-        mu_age = pm.TruncatedNormal('mu_age', mu=40, sigma=10., lower=18, upper=90, dims='channel') #
-        mu_meg = pm.Normal('mu_meg', mu=0, sigma=1., dims='channel')
-
-        #prior on correlation
-        chol, corr, stds = pm.LKJCholeskyCov("chol", n=2, eta=4.0, 
-                       sd_dist=pm.HalfCauchy.dist(2.5), compute_corr=True)
-    
-        #stack data together
-        mu = at.stack((mu_meg[channel_idx], mu_age[channel_idx]), axis=1)
-        #save correlation
-        chan_corr = pm.Deterministic('chan_corr', corr[0, 1])
-        #observed data
-        y = pm.MvNormal('y', mu=mu, chol=chol, observed=df[[key_a, key_b]])
-
-        #do some prior checks
-        if do_prior_checks:
-            idata = pm.sample_prior_predictive(50)
-
-        #do the actual sampling
-        if sample:
-            trace = pm.sample(**sampling_kwargs)
-
-        #do some posterior checks
-        if do_posterior_checks:
-            pm.sample_posterior_predictive(trace, extend_inferencedata=True,)
-
-    if do_prior_checks:
-        return idata
-    else:
-        return trace
-
-#%% run the model
-sampling_kwargs = {
-    'draws': 500, 
-    'tune': 1000, 
-    'chains': 2,
-    'init': 'adapt_diag',
-    'target_accept': 0.95
-}
-#%%
-brain_ica_x_age_trace = do_bayesian_correlation(df_cmb, 'brain_slope', 'age', sampling_kwargs)
-az.to_netcdf(brain_ica_x_age_trace, '../results/cam_can_brain_ica_x_age_corr.ncdf')
-#%%
-brain_no_ica_x_age_trace = do_bayesian_correlation(df_cmb, 'brain_no_ica', 'age', sampling_kwargs)
-az.to_netcdf(mdf, '../results/cam_can_brain_no_ica_x_age_corr.ncdf')
-#%%
-brain_ecg_x_age_trace = do_bayesian_correlation(df_cmb, 'heart_slope_mag', 'age', sampling_kwargs)
-az.to_netcdf(mdf, '../results/cam_can_brain_ecg_x_age_trace_corr.ncdf')
-
-#%%
