@@ -6,14 +6,12 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 import joblib
-import eelbrain as eb
-from sklearn.decomposition import PCA
-
 
 import sys
 sys.path.append('/mnt/obob/staff/fschmidt/cardiac_1_f')
 
 from utils.plot_utils import plot_ridge
+from utils.trf_utils import do_boosting, trf2pandas, get_max_amp
 
 import bambi as bmb
 import arviz as az
@@ -34,43 +32,16 @@ INDIR = '/mnt/obob/staff/fschmidt/cardiac_1_f/data/data_sim_meeg'
 all_files = listdir(INDIR)
 all_files = [file for file in all_files if len(file) == 16]
 #%%
-def do_boosting(avg, fwd, boosting_kwargs):
-    
-    #%get channels post ecg
-    start_idx =  np.where(avg.keys() =='ECG003')[0][0] + 1
 
-    tmin = 0
-    tstep = 0.01
-    nsamples = avg.shape[0]
-    time_course = eb.UTS(tmin, tstep, nsamples)
-    chans = eb.Scalar('channel', range(len(avg.iloc[:,start_idx:].T))) #
+def combine_trf_dfs(dev_type, do_pca):
+    trf_cmb = pd.concat([trf2pandas(cur_trf, f'trf_{dev_type}_heart', do_pca=do_pca),
+                         trf2pandas(cur_trf, f'trf_{dev_type}_ica', do_pca=do_pca),
+                         trf2pandas(cur_trf, f'trf_{dev_type}_no_ica', do_pca=do_pca)], axis=0)
 
-    ecg_tc = eb.NDVar(avg['ECG003'], time_course, name='ECG')
-    eeg_tc = eb.NDVar(avg.iloc[:,start_idx:].T, (chans, time_course,), name='EEG')
-
-    if fwd:
-        trf = eb.boosting(eeg_tc, ecg_tc, **boosting_kwargs)
-    else:
-        trf = eb.boosting(ecg_tc, eeg_tc, **boosting_kwargs)
-    return trf
-
-def get_prediction(avg, trf):
-        #%get channels post ecg
-    start_idx =  np.where(avg.keys() =='ECG003')[0][0] + 1
-
-    tmin = 0
-    tstep = 0.01
-    nsamples = avg.shape[0]
-    time_course = eb.UTS(tmin, tstep, nsamples)
-    chans = eb.Scalar('channel', range(len(avg.iloc[:,start_idx:].T))) #
-
-    ecg_tc = eb.NDVar(avg['ECG003'], time_course, name='ECG')
-    eeg_tc = eb.NDVar(avg.iloc[:,start_idx:].T, (chans, time_course,), name='EEG')
-
-    return eb.convolve(trf.h_scaled, ecg_tc, eeg_tc)
+    trf_cmb['subject_id'] = cur_trf_file[:-4]  
+    return trf_cmb
 
 
-#%%
 boosting_kwargs = {'tstart': -0.25,
                    'tstop': 0.25,
                    'basis':0.05,
@@ -111,56 +82,6 @@ if run_boosting:
             joblib.dump(trf_data, join(OUTDIR, file))
 
 #%%
-def trf2pandas(cur_trf, key, do_pca=True):
-
-    if do_pca:
-        pca = PCA(n_components=1)
-        trf_pca = pca.fit_transform(cur_trf[key].h.x.T)
-
-        df_trf = pd.DataFrame({'amplitude (a.u.)': trf_pca.flatten(),
-                              'time': list(cur_trf[key].h_time)})
-        df_trf['condition'] = key
-
-    else:
-        df_trf_tmp = pd.DataFrame(cur_trf[key].h_scaled.x.T)
-        df_trf_tmp['time'] = list(cur_trf[key].h_time)
-        df_trf = df_trf_tmp.melt(id_vars='time')
-        df_trf.columns= ['time', 'channel', 'amplitude (a.u.)']
-        df_trf['condition'] = key
-    return df_trf
-
-def combine_trf_dfs(dev_type, do_pca):
-    trf_cmb = pd.concat([trf2pandas(cur_trf, f'trf_{dev_type}_heart', do_pca=do_pca),
-                         trf2pandas(cur_trf, f'trf_{dev_type}_ica', do_pca=do_pca),
-                         trf2pandas(cur_trf, f'trf_{dev_type}_no_ica', do_pca=do_pca)], axis=0)
-
-    trf_cmb['subject_id'] = cur_trf_file[:-4]  
-    return trf_cmb
-
-
-def get_max_amp(data):
-
-    time_data = []
-
-    trf_times = data.query(f'time > -0.10 and time < 0.10') #to avoid including edge artifacts
-
-    for subject in trf_times['subject_id'].unique():
-
-        cur_trf_subject = trf_times.query(f'subject_id == "{subject}"')
-
-        for channel in cur_trf_subject['channel'].unique():
-
-            cur_trf_channel = cur_trf_subject.query(f'channel == {channel}')
-
-            for condition in cur_trf_channel['condition'].unique():
-
-                cur_trf = cur_trf_channel.query(f'condition == "{condition}"')
-                time_data.append(pd.DataFrame(cur_trf.iloc[np.abs(cur_trf['amplitude (a.u.)']).argmax()]).T)
-    
-    return pd.concat(time_data)
-
-
-
 
 all_trfs = listdir(OUTDIR)
 
@@ -204,8 +125,6 @@ df_trf_cmb_eeg_pca = pd.concat(trf_list_eeg_pca)
 df_trf_cmb_meg_pca = pd.concat(trf_list_meg_pca)
 
 #%% get maximum amplitude time per subject, channel and condition
-
-
 #%%
 plot_order = ['pure', 'present', 'removed']
 colors = ['#66c2a5', '#fc8d62', '#8da0cb',]
@@ -217,7 +136,6 @@ hue_order_e = ['trf_eeg_ica', 'trf_eeg_no_ica', 'trf_eeg_heart']
 
 #%%
 #%% model dispersion of peaks around 0
-
 df_time_meg = get_max_amp(df_trf_cmb_meg)
 df_time_eeg = get_max_amp(df_trf_cmb_eeg)
 
