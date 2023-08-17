@@ -25,6 +25,25 @@ def aggregate_sign_feature(df_in, feature_key, pos_mask):
     return df
 
 
+def aggregate_sign_feature_irasa(df_in, pos_mask):
+
+    '''
+    Aggregate data across channels per subject for each feature of interest.
+    '''
+    
+    feature_by_age = []
+
+    for subject in df_in['subject_id'].unique():
+        cur_subject = df_in.query(f'subject_id == "{subject}"')
+        feature_by_age.append(cur_subject
+                                         .sort_values(by='Chan')[pos_mask]
+                                         .mean()[['Slope', 'age']])
+
+    df = pd.concat(feature_by_age, axis=1).T
+    df['subject_id'] = df_in['subject_id'].unique()
+    return df
+
+
 def coefficients2pcorrs(df4mdf, mdf, response_var, predictor_vars, md=None):
 
     '''

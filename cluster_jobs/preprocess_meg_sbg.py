@@ -7,12 +7,12 @@ import pandas as pd
 #%%
 class Preprocessing(AbstractPreprocessingJob):
 
-    job_data_folder = 'data_sbg'
+    job_data_folder = 'data_sbg_irasa'
 
     def _get_age(self):
         return self.raw.info['subject_info']['age']
 
-    def _data_loader(self, subject_id):
+    def _data_loader(self, subject_id, sss):
         #%%
         df_all = pd.read_csv('/mnt/obob/staff/fschmidt/cardiac_1_f/data/resting_lists_sbg/resting_list_single.csv').query('fs_1k == True')
         df_all.reset_index(inplace=True)
@@ -39,7 +39,12 @@ class Preprocessing(AbstractPreprocessingJob):
         raw.load_data()
         raw.info['bads'] = noisy_chs + flat_chs
 
-        raw.interpolate_bads() # remove
+        if sss:
+            raw = mne.preprocessing.maxwell_filter(raw,
+                                                   #destination=(0, 0, 0.04),  # noqa
+                                                   )
+        else:
+            raw.interpolate_bads()
 
         #%% if time is below 5mins breaks function here -> this is because some people in salzburg recorded ~1min resting states
         if raw.times.max() / 60 < 4.9:

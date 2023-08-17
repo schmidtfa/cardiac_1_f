@@ -12,12 +12,12 @@ from mne_bids import BIDSPath, read_raw_bids
 
 class Preprocessing(AbstractPreprocessingJob):
     
-    job_data_folder = 'data_cam_can'
+    job_data_folder = 'data_cam_can_irasa_final'
 
     def _get_age(self):
         return self.raw.info['subject_info']['age']
 
-    def _data_loader(self, subject_id):
+    def _data_loader(self, subject_id, sss):
 
         base_dir = '/mnt/obob/camcan/cc700/meg/pipeline/release005/BIDSsep/rest'
 
@@ -30,7 +30,13 @@ class Preprocessing(AbstractPreprocessingJob):
 
         raw.load_data()
         raw.info['bads'] = noisy_chs + flat_chs
-        raw.interpolate_bads()
+
+        if sss:
+            raw = mne.preprocessing.maxwell_filter(raw,
+                                                   #destination=(0, 0, 0.04),  # noqa
+                                                   )
+        else:
+            raw.interpolate_bads()
 
         return raw
 

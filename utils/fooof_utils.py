@@ -67,6 +67,8 @@ def get_good_idx(fg, thresh=2.5):
     good_idx = np.logical_and(r2, err)
     return good_idx
 
+    
+
 def plot_band_peak_topos(fg, chan_type, bands):
 
     '''
@@ -133,30 +135,41 @@ def get_good_aps(fg, thresh=2.5, fit_knee=False):
     return aps_clean
 
 
-def fooof2aperiodics(freqs, freq_range, psd, is_3d=False, thresh=2.5, fit_knee=False):
+def fooof2aperiodics(freqs, lower_freq_fooof, upper_freq_fooof, psd, is_3d=False, thresh=2.5, fit_knee=False, n_peaks=3):
 
     '''
     fits a fooof model without peaks to extract and return aperiodics only 
     '''
     
     if fit_knee:
-        fg = FOOOFGroup(max_n_peaks=0, aperiodic_mode='knee')
+        fg = FOOOFGroup(max_n_peaks=n_peaks, peak_width_limits=[2, 8], 
+                        min_peak_height=0, peak_threshold=2,
+                        aperiodic_mode='knee')
+
     else:
-        fg = FOOOFGroup(max_n_peaks=0) #fit no peaks to speed-up processing
+        fg = FOOOFGroup(max_n_peaks=n_peaks, peak_width_limits=[2, 8], 
+                        min_peak_height=0, peak_threshold=2) #fit no peaks to speed-up processing
+
 
     if is_3d:
-        fgs = fit_fooof_3d(fg, freqs, psd, freq_range=freq_range)
+        fgs = fit_fooof_3d(fg, freqs, psd, freq_range=[lower_freq_fooof, upper_freq_fooof])
         exponents = np.mean([get_fooof_data(fg, param='exponent') for fg in fgs], axis=0)
         offsets = np.mean([get_fooof_data(fg, param='offset') for fg in fgs], axis=0)
 
         aps_clean = pd.concat([get_good_aps(fg) for fg in fgs], fit_knee=fit_knee).groupby('index').mean()
 
     else:
-        fg.fit(freqs, psd, freq_range=freq_range)
+        fg.fit(freqs, psd, freq_range=[lower_freq_fooof, upper_freq_fooof])
+        
 
         exponents = get_fooof_data(fg, param='exponent')
         offsets = get_fooof_data(fg, param='offset')
 
         aps_clean = get_good_aps(fg, thresh=thresh, fit_knee=fit_knee)
 
-    return exponents, offsets, aps_clean
+    #just display all
+    r2 = fg.get_params('r_squared')
+    error = fg.get_params('error')
+
+
+    return exponents, offsets, aps_clean, r2, error, errs_fg

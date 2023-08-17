@@ -263,7 +263,7 @@ df_rem = df_ecg_present.query('variable == "removed"')
 df_pres = df_ecg_present.query('variable == "present"')
 df_pure = df_ecg_present.query('variable == "pure"')
 
-
+#%%
 md_rem = bmb.Model('value ~ 0 + device', data=df_rem)
 mdf_rem = md_rem.fit()
 
@@ -305,14 +305,25 @@ g_pure = plot_ridge(df_mdf_pure, 'variable', 'value', pal=pal_pure, aspect=5, xl
 
 # %% to lazy to substract
 lvl = ["meg", "eeg"]
-md_rem_4stat = bmb.Model('value ~ 1 + C(device, levels=lvl)', data=df_rem)
+from scipy.stats import zscore
+
+df_rem['z'] = zscore(df_rem['value'])
+md_rem_4stat = bmb.Model('z ~ 1 + C(device, levels=lvl)', data=df_rem)
 mdf_rem_4stat = md_rem_4stat.fit()
 
 az.summary(mdf_rem_4stat)
 # %%
 lvl = ["meg", "eeg"]
-md_pure_4stat = bmb.Model('value ~ 1 + C(device, levels=lvl)', data=df_pure)
+df_pure['z'] = zscore(df_pure['value'])
+md_pure_4stat = bmb.Model('z ~ 1 + C(device, levels=lvl)', data=df_pure)
 mdf_pure_4stat = md_pure_4stat.fit()
 
 az.summary(mdf_pure_4stat)
+# %%
+lvl = ["meg", "eeg"]
+df_pres['z'] = zscore(df_pres['value'])
+md_pres_4stat = bmb.Model('z ~ 1 + C(device, levels=lvl)', data=df_pres)
+mdf_pres_4stat = md_pres_4stat.fit()
+
+az.summary(mdf_pres_4stat)
 # %%

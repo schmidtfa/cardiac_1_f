@@ -4,18 +4,23 @@ import numpy as np
 import mne
 from warnings import warn
 
-def compute_spectra_mne(cur_data):
-    
+def compute_spectra_mne(mne_data, freq_range):
+
     '''
     Computes power spectra mne style using a sensible setup based on Gao et al. 2017 
     '''
     
+    # Grab the sampling rate, signal and time from the data
+    #fs = mne_data.info['sfreq']
+
     # Calculate power spectra across the the continuous data
-    spectra, freqs = psd_welch(cur_data, fmin=1, fmax=100, tmin=0, tmax=None,
-                                       n_overlap=250, n_fft=1000)
-    
+    #spectra, freqs = psd_welch(mne_data, fmin=freq_range[0], fmax=freq_range[1],)
+                               #n_overlap=time_window*fs*overlap, n_per_seg=fs*time_window)
+
+    spectrum = mne_data.compute_psd(method="multitaper", fmin=freq_range[0], fmax=freq_range[1])
+    spectra, freqs = spectrum.get_data(return_freqs=True)
         
-    return cur_data.info, spectra, freqs #need cur_data for channel plotting info
+    return freqs, spectra, mne_data.info #need cur_data for channel plotting info
 
 
 def compute_spectra_ndsp(mne_data, method='welch', chan_type=True, freq_range=[1, 25], 
@@ -33,20 +38,26 @@ def compute_spectra_ndsp(mne_data, method='welch', chan_type=True, freq_range=[1
         sig = mne_data.get_data()
     else:
         sig,_ = mne_data.get_data(return_times=True)
-        
-    # set frequency resolution    
+
+ 
     psd_kwargs = {'method': method,
-                  'avg_type':'median',
-                  #'freqs': freq_range if method == 'wavelet' else None, #some issues with wavelet
+                  'avg_type':'mean',
                   'nperseg': fs*time_window if method == 'welch' else None,
-                  'noverlap': time_window*fs*overlap if method == 'welch' else None,}
-    
+                  'noverlap': 0 if method == 'welch' else None,}
+        
     if type(mne_data) == mne.epochs.Epochs:
+
         freqs, psd = zip(*[compute_spectrum(cur_sig, fs, **psd_kwargs) for cur_sig in sig])
+
         if method == 'welch':
             freqs, psd = zip(*[trim_spectrum(cur_freq, cur_psd, freq_range) for cur_freq, cur_psd in zip(freqs,psd)])
             freqs, psd = freqs[0], np.array(psd)
     else:
+        # set frequency resolution
+        if method == 'welch' :  
+            psd_kwargs['noverlap'] = time_window*fs*overlap 
+        else:
+            None
         freqs, psd = compute_spectrum(sig, fs, **psd_kwargs)
         
         if method == 'welch':
@@ -99,7 +110,7 @@ def interpolate_line_freq(signal, line_freq, freqs, n_hz_prior):
     for idx, cur_freq in enumerate(freqs):
         if cur_freq % line_freq == 0 and idx > 0:
             if freqs[-1] > cur_freq + (freq_steps * idx_steps):
-                interpol[idx-idx_steps:idx+idx_steps] = np.mean([signal[idx-idx_steps], signal[idx+idx_steps]])
+                interpol[idx-idx_steps:idx+idx_steps] = np.median([signal[idx-idx_steps], signal[idx+idx_steps]])
             else:
                 message = f'The Frequency {cur_freq} is too close to the highest frequency in the spectrum. Only indices prior to {cur_freq} are used for the {cur_freq}'
                 warn(message, UserWarning, stacklevel=2)

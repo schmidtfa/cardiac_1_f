@@ -4,6 +4,11 @@ old_stuff/
 data/
 results/
 helpers/
+utils/__pycache__
+cluster_jobs/__pycache__
+cluster_jobs/.ipynb_checkpoints
+notebooks/.ipynb_checkpoints
 .venv
 .ipynb_checkpoints
 .idea
+._.DS_Store
