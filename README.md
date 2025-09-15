@@ -1,6 +1,6 @@
 # Cardiac 1/f
 
-This code relates to this paper https://doi.org/10.7554/eLife.100605.2
+This code relates to this paper https://doi.org/10.7554/eLife.100605.3 
 
 Most of the data used in this project comes from open repositories.
 
